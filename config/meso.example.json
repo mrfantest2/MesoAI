@@ -1,0 +1,12 @@
+{
+  "project": "MesoAI",
+  "profile": "meso",
+  "target_sender": "Maissoun Moussa",
+  "negative_senders": ["Jamal Bro"],
+  "raw_root": "C:/MesoAI/private/raw",
+  "processed_root": "C:/MesoAI/private/processed",
+  "profile_root": "C:/MesoAI/profiles/meso",
+  "web_root": "C:/xampp/htdocs/meso",
+  "public_url": "https://fantest.win/meso/",
+  "phase": "voice_fidelity"
+}
