@@ -7,17 +7,20 @@ $default = [
   'ok' => true,
   'project' => 'MesoAI',
   'phase' => 'voice_fidelity',
-  'status' => 'voice_reference_pipeline_ready',
+  'status' => 'next_engine_evaluation_pending',
   'mode' => 'apply',
   'target_audio' => 156,
-  'negative_audio' => 36,
-  'target_duration_minutes' => 55.6,
-  'quality_passed' => 69,
+  'target_duration_minutes' => 55.58,
+  'deep_analyzed' => 156,
+  'deep_quality_usable' => 130,
+  'quality_passed' => 130,
   'selected_references' => 20,
-  'normalization' => 'ready',
-  'profile_builder' => 'ready',
-  'synthesis' => 'locked_pending_voice_authorization',
-  'consent_recorded' => false,
+  'normalization' => 'prepared_private',
+  'profile_builder' => 'prepared_private',
+  'synthesis' => 'authorized_local_only',
+  'next_engine' => 'Fish Audio S2',
+  'next_engine_status' => 'evaluation_pending',
+  'consent_recorded' => true,
   'memory_enabled' => false,
   'persona_enabled' => false,
   'public_audio' => false,
@@ -27,4 +30,5 @@ if (is_file($statePath)) {
   $custom = json_decode((string)$raw, true);
   if (is_array($custom)) $default = array_replace($default, $custom);
 }
+unset($default['negative_audio'], $default['negative_duration_minutes']);
 echo json_encode($default, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
