@@ -39,14 +39,38 @@ try {
     $envPath = 'C:\\Users\\Administrator\\Khalil-Digital-Twin\\.env';
     if (!is_file($envPath) || !is_readable($envPath)) throw new RuntimeException('provider_source_unreadable');
     $lines = @file($envPath, FILE_IGNORE_NEW_LINES) ?: [];
-    $key = read_env_value($lines, 'OPENAI_API_KEY');
-    if ($key === null || $key === '') throw new RuntimeException('openai_key_not_found');
-    $model = read_env_value($lines, 'KHALIL_OPENAI_MODEL') ?: 'gpt-5';
+
+    $selected = strtolower(read_env_value($lines, 'KHALIL_BRAIN_PROVIDER') ?: 'auto');
+    $openaiKey = read_env_value($lines, 'OPENAI_API_KEY');
+    $provider = null;
+    $model = null;
+    $providerConfig = null;
+
+    if ($selected === 'ollama') {
+        $model = read_env_value($lines, 'KHALIL_OLLAMA_MODEL') ?: 'qwen2.5:7b';
+        $rawBase = read_env_value($lines, 'KHALIL_OLLAMA_BASE_URL') ?: 'http://host.docker.internal:11434';
+        $parts = parse_url($rawBase);
+        $port = isset($parts['port']) ? (int)$parts['port'] : 11434;
+        if ($port < 1 || $port > 65535) throw new RuntimeException('invalid_ollama_port');
+        $provider = 'ollama';
+        $providerConfig = ['provider' => 'ollama', 'base_url' => 'http://127.0.0.1:' . $port, 'model' => $model];
+    } elseif ($selected === 'openai' || ($selected === 'auto' && $openaiKey)) {
+        if ($openaiKey === null || $openaiKey === '') throw new RuntimeException('openai_key_not_found');
+        $model = read_env_value($lines, 'KHALIL_OPENAI_MODEL') ?: 'gpt-5';
+        $provider = 'openai';
+        $providerConfig = ['provider' => 'openai', 'api_key' => $openaiKey, 'model' => $model];
+    } elseif (($selected === 'auto' || $selected === '') && ($openaiKey === null || $openaiKey === '')) {
+        $model = read_env_value($lines, 'KHALIL_OLLAMA_MODEL') ?: 'qwen2.5:7b';
+        $provider = 'ollama';
+        $providerConfig = ['provider' => 'ollama', 'base_url' => 'http://127.0.0.1:11434', 'model' => $model];
+    } else {
+        throw new RuntimeException('unsupported_brain_provider');
+    }
 
     $providerPath = $privateRoot . '\\provider.json';
     $tmp = $providerPath . '.tmp-' . bin2hex(random_bytes(6));
-    $provider = json_encode(['provider' => 'openai', 'api_key' => $key, 'model' => $model], JSON_UNESCAPED_SLASHES);
-    if (file_put_contents($tmp, $provider, LOCK_EX) === false) throw new RuntimeException('provider_write_failed');
+    $encoded = json_encode($providerConfig, JSON_UNESCAPED_SLASHES);
+    if ($encoded === false || file_put_contents($tmp, $encoded, LOCK_EX) === false) throw new RuntimeException('provider_write_failed');
     if (!@rename($tmp, $providerPath)) {
         @unlink($tmp);
         throw new RuntimeException('provider_commit_failed');
@@ -65,6 +89,7 @@ try {
     echo json_encode([
         'ok' => true,
         'provider_configured' => true,
+        'provider' => $provider,
         'model' => $model,
         'curl_available' => function_exists('curl_init'),
         'invite_token' => $invite,
