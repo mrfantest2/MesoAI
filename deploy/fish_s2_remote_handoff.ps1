@@ -20,10 +20,6 @@ function Require-File([string]$Path, [string]$Label) {
   if (!(Test-Path -LiteralPath $Path -PathType Leaf)) { throw "$Label not found: $Path" }
 }
 
-function Quote-Sh([string]$Value) {
-  return "'" + $Value.Replace("'", "'\"'\"'") + "'"
-}
-
 function Invoke-Native([string]$Exe, [string[]]$Args) {
   & $Exe @Args
   if ($LASTEXITCODE -ne 0) { throw "$Exe failed with exit code $LASTEXITCODE" }
@@ -35,8 +31,10 @@ Require-File $ReferenceTranscript 'Reference transcript'
 Require-File $TargetText 'Target text'
 Require-File $LicenseAcceptanceJson 'Fish license acceptance record'
 
-if ($RemoteRoot -notmatch '^/workspace/[A-Za-z0-9._/-]+$' -or $RemoteRoot.Length -lt 20) {
-  throw 'RemoteRoot must be a dedicated path below /workspace/.'
+# RemoteRoot is interpolated into remote shell commands, so deliberately restrict it
+# to a narrow shell-safe path grammar instead of attempting ad-hoc escaping.
+if ($RemoteRoot -notmatch '^/workspace/[A-Za-z0-9._/-]+$' -or $RemoteRoot.Length -lt 20 -or $RemoteRoot.Contains('..')) {
+  throw 'RemoteRoot must be a dedicated shell-safe path below /workspace/.'
 }
 
 $license = Get-Content -LiteralPath $LicenseAcceptanceJson -Raw | ConvertFrom-Json
@@ -79,7 +77,7 @@ try {
   if (!$matched) { throw 'Remote SSH host-key fingerprint does not match the expected provider fingerprint.' }
   Write-Host 'MESO_FISH_REMOTE_HOST_KEY_VERIFIED=true'
 
-  $mkdir = "umask 077; mkdir -p $(Quote-Sh $RemoteRoot) $(Quote-Sh ($RemoteRoot + '/output')); chmod 700 $(Quote-Sh $RemoteRoot)"
+  $mkdir = "umask 077; mkdir -p $RemoteRoot $RemoteRoot/output; chmod 700 $RemoteRoot"
   Invoke-Native 'ssh' ($sshCommon + @($target, $mkdir))
 
   $files = @(
@@ -97,7 +95,7 @@ try {
   foreach ($item in $files) {
     $localHash = (Get-FileHash -LiteralPath $item.Local -Algorithm SHA256).Hash.ToLowerInvariant()
     $remotePath = $RemoteRoot + '/' + $item.Remote
-    $cmd = "sha256sum -- $(Quote-Sh $remotePath) | awk '{print `$1}'"
+    $cmd = "sha256sum -- $remotePath | awk '{print `$1}'"
     $remoteHash = (& ssh @sshCommon $target $cmd).Trim().ToLowerInvariant()
     if ($LASTEXITCODE -ne 0 -or $remoteHash -ne $localHash) { throw "Remote hash mismatch for $($item.Remote)" }
   }
@@ -105,18 +103,18 @@ try {
 
   $install = if ($InstallSystemDeps) { '1' } else { '0' }
   $run = @(
-    "chmod 700 $(Quote-Sh ($RemoteRoot + '/run_fish_s2_ephemeral.sh'))",
+    "chmod 700 $RemoteRoot/run_fish_s2_ephemeral.sh",
     "MESO_FISH_LICENSE_ACCEPTED=1",
     "INSTALL_SYSTEM_DEPS=$install",
-    "PRIVATE_ROOT=$(Quote-Sh $RemoteRoot)",
-    "REFERENCE_AUDIO=$(Quote-Sh ($RemoteRoot + '/reference.wav'))",
-    "REFERENCE_TEXT_FILE=$(Quote-Sh ($RemoteRoot + '/reference.txt'))",
-    "TARGET_TEXT_FILE=$(Quote-Sh ($RemoteRoot + '/target.txt'))",
-    "OUTPUT_DIR=$(Quote-Sh ($RemoteRoot + '/output'))",
-    "WORKDIR=$(Quote-Sh ($RemoteRoot + '/work'))",
+    "PRIVATE_ROOT=$RemoteRoot",
+    "REFERENCE_AUDIO=$RemoteRoot/reference.wav",
+    "REFERENCE_TEXT_FILE=$RemoteRoot/reference.txt",
+    "TARGET_TEXT_FILE=$RemoteRoot/target.txt",
+    "OUTPUT_DIR=$RemoteRoot/output",
+    "WORKDIR=$RemoteRoot/work",
     "PURGE_PRIVATE_INPUTS=1",
     "KEEP_WORKDIR=0",
-    "bash $(Quote-Sh ($RemoteRoot + '/run_fish_s2_ephemeral.sh'))"
+    "bash $RemoteRoot/run_fish_s2_ephemeral.sh"
   ) -join ' '
   Invoke-Native 'ssh' ($sshCommon + @($target, $run))
 
@@ -143,7 +141,7 @@ try {
   # inference or download fails; pod destruction remains a separate provider action.
   try {
     if (Test-Path -LiteralPath $knownHosts) {
-      $cleanup = "rm -rf -- $(Quote-Sh $RemoteRoot)"
+      $cleanup = "rm -rf -- $RemoteRoot"
       & ssh @sshCommon $target $cleanup 2>$null | Out-Null
     }
   } catch {}
