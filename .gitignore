@@ -1,0 +1,26 @@
+# Private voice/chat data
+*.zip
+*.zip.bak
+*.opus
+*.ogg
+*.wav
+*.mp3
+*.m4a
+*.aac
+*.flac
+_chat.txt
+private/
+data/raw/
+data/processed/
+data/rejected/
+data/manifests/*.json
+profiles/*/references/
+
+# Runtime/local state
+.env
+config/local.json
+web/state.local.json
+__pycache__/
+*.pyc
+.venv/
+venv/
