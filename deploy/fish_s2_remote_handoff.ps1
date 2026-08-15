@@ -9,7 +9,9 @@ param(
   [Parameter(Mandatory=$true)][string]$TargetText,
   [Parameter(Mandatory=$true)][string]$LicenseAcceptanceJson,
   [Parameter(Mandatory=$true)][string]$LocalOutputDir,
+  [string]$ProjectSlug = 'meso',
   [string]$RemoteRoot = '/workspace/meso-private',
+  [string]$SharedWorkRoot = '/workspace/fish-s2-shared',
   [switch]$InstallSystemDeps
 )
 
@@ -31,10 +33,17 @@ Require-File $ReferenceTranscript 'Reference transcript'
 Require-File $TargetText 'Target text'
 Require-File $LicenseAcceptanceJson 'Fish license acceptance record'
 
-# RemoteRoot is interpolated into remote shell commands, so deliberately restrict it
-# to a narrow shell-safe path grammar instead of attempting ad-hoc escaping.
+if ($ProjectSlug -notmatch '^[a-z0-9][a-z0-9_-]{1,31}$') {
+  throw 'ProjectSlug must be a short shell-safe identifier.'
+}
 if ($RemoteRoot -notmatch '^/workspace/[A-Za-z0-9._/-]+$' -or $RemoteRoot.Length -lt 20 -or $RemoteRoot.Contains('..')) {
   throw 'RemoteRoot must be a dedicated shell-safe path below /workspace/.'
+}
+if ($SharedWorkRoot -notmatch '^/workspace/[A-Za-z0-9._/-]+$' -or $SharedWorkRoot.Contains('..')) {
+  throw 'SharedWorkRoot must be a shell-safe path below /workspace/.'
+}
+if ($RemoteRoot.StartsWith($SharedWorkRoot) -or $SharedWorkRoot.StartsWith($RemoteRoot)) {
+  throw 'Private RemoteRoot and SharedWorkRoot must not overlap.'
 }
 
 $license = Get-Content -LiteralPath $LicenseAcceptanceJson -Raw | ConvertFrom-Json
@@ -64,7 +73,6 @@ $sshCommon = @('-p', [string]$RemotePort, '-i', $SshKeyPath, '-o', 'BatchMode=ye
 $scpCommon = @('-P', [string]$RemotePort, '-i', $SshKeyPath, '-o', 'BatchMode=yes', '-o', 'IdentitiesOnly=yes', '-o', "UserKnownHostsFile=$knownHosts", '-o', 'StrictHostKeyChecking=yes')
 
 try {
-  # Pin the first SSH connection to the provider-supplied host-key fingerprint.
   $scan = & ssh-keyscan -p $RemotePort -- $RemoteHost 2>$null
   if ($LASTEXITCODE -ne 0 -or !$scan) { throw 'Unable to obtain remote SSH host key.' }
   Set-Content -LiteralPath $knownHosts -Value $scan -Encoding ascii
@@ -77,7 +85,7 @@ try {
   if (!$matched) { throw 'Remote SSH host-key fingerprint does not match the expected provider fingerprint.' }
   Write-Host 'MESO_FISH_REMOTE_HOST_KEY_VERIFIED=true'
 
-  $mkdir = "umask 077; mkdir -p $RemoteRoot $RemoteRoot/output; chmod 700 $RemoteRoot"
+  $mkdir = "umask 077; mkdir -p $RemoteRoot $RemoteRoot/output $SharedWorkRoot; chmod 700 $RemoteRoot"
   Invoke-Native 'ssh' ($sshCommon + @($target, $mkdir))
 
   $files = @(
@@ -91,7 +99,6 @@ try {
     Invoke-Native 'scp' ($scpCommon + @($item.Local, ($target + ':' + $RemoteRoot + '/' + $item.Remote)))
   }
 
-  # End-to-end input integrity check before inference.
   foreach ($item in $files) {
     $localHash = (Get-FileHash -LiteralPath $item.Local -Algorithm SHA256).Hash.ToLowerInvariant()
     $remotePath = $RemoteRoot + '/' + $item.Remote
@@ -105,30 +112,34 @@ try {
   $run = @(
     "chmod 700 $RemoteRoot/run_fish_s2_ephemeral.sh",
     "MESO_FISH_LICENSE_ACCEPTED=1",
+    "PROJECT_SLUG=$ProjectSlug",
     "INSTALL_SYSTEM_DEPS=$install",
     "PRIVATE_ROOT=$RemoteRoot",
     "REFERENCE_AUDIO=$RemoteRoot/reference.wav",
     "REFERENCE_TEXT_FILE=$RemoteRoot/reference.txt",
     "TARGET_TEXT_FILE=$RemoteRoot/target.txt",
     "OUTPUT_DIR=$RemoteRoot/output",
-    "WORKDIR=$RemoteRoot/work",
+    "WORKDIR=$SharedWorkRoot",
     "PURGE_PRIVATE_INPUTS=1",
-    "KEEP_WORKDIR=0",
+    "KEEP_WORKDIR=1",
     "bash $RemoteRoot/run_fish_s2_ephemeral.sh"
   ) -join ' '
   Invoke-Native 'ssh' ($sshCommon + @($target, $run))
 
-  foreach ($name in @('meso-fish-F1.wav','meso-fish-F2.wav','meso-fish-F3.wav','report.json')) {
+  $expectedNames = @("$ProjectSlug-fish-F1.wav","$ProjectSlug-fish-F2.wav","$ProjectSlug-fish-F3.wav",'report.json')
+  foreach ($name in $expectedNames) {
     Invoke-Native 'scp' ($scpCommon + @(($target + ':' + $RemoteRoot + '/output/' + $name), $LocalOutputDir))
   }
 
   $reportPath = Join-Path $LocalOutputDir 'report.json'
   Require-File $reportPath 'Fish output report'
   $report = Get-Content -LiteralPath $reportPath -Raw | ConvertFrom-Json
+  if ([string]$report.project_slug -ne $ProjectSlug) { throw 'Fish report project slug mismatch.' }
   if (@($report.variants).Count -ne 3) { throw 'Fish report did not contain exactly three variants.' }
+  $namePattern = '^' + [regex]::Escape($ProjectSlug) + '-fish-F[123]\.wav$'
   foreach ($variant in @($report.variants)) {
     $fileName = [string]$variant.file
-    if ($fileName -notmatch '^meso-fish-F[123]\.wav$') { throw "Unexpected Fish output name: $fileName" }
+    if ($fileName -notmatch $namePattern) { throw "Unexpected Fish output name: $fileName" }
     $localPath = Join-Path $LocalOutputDir $fileName
     Require-File $localPath 'Fish output'
     $actual = (Get-FileHash -LiteralPath $localPath -Algorithm SHA256).Hash.ToLowerInvariant()
@@ -137,8 +148,8 @@ try {
   }
   Write-Host 'MESO_FISH_DOWNLOADED_OUTPUTS_VERIFIED=true'
 } finally {
-  # The GPU-side private working set is disposable. Cleanup is attempted even when
-  # inference or download fails; pod destruction remains a separate provider action.
+  # Only the project-private root is deleted here. SharedWorkRoot contains public
+  # Fish source/model/runtime cache and may be reused by the next isolated project.
   try {
     if (Test-Path -LiteralPath $knownHosts) {
       $cleanup = "rm -rf -- $RemoteRoot"
@@ -148,4 +159,4 @@ try {
   Remove-Item -LiteralPath $knownHosts -Force -ErrorAction SilentlyContinue
 }
 
-Write-Host "Fish S2 outputs verified locally: $LocalOutputDir"
+Write-Host "Fish S2 outputs verified locally for ${ProjectSlug}: $LocalOutputDir"
