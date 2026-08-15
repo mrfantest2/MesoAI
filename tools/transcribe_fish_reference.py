@@ -7,6 +7,7 @@ UTF-8 text/JSON beside the private MesoAI runtime on MASTER-PC.
 from __future__ import annotations
 
 import argparse
+import importlib.metadata
 import json
 from pathlib import Path
 from datetime import datetime, timezone
@@ -19,8 +20,8 @@ def main() -> int:
     ap.add_argument("audio", type=Path)
     ap.add_argument("--out-dir", type=Path, required=True)
     ap.add_argument("--model", default="large-v3-turbo")
-    ap.add_argument("--device", default="cuda")
-    ap.add_argument("--compute-type", default="float16")
+    ap.add_argument("--device", default="cpu")
+    ap.add_argument("--compute-type", default="int8")
     args = ap.parse_args()
 
     audio = args.audio.resolve()
@@ -61,10 +62,17 @@ def main() -> int:
         raise SystemExit("Whisper returned an empty Arabic transcript")
 
     (out_dir / "reference.txt").write_text(transcript + "\n", encoding="utf-8")
+    try:
+        fw_version = importlib.metadata.version("faster-whisper")
+    except importlib.metadata.PackageNotFoundError:
+        fw_version = None
     payload = {
         "created_at": datetime.now(timezone.utc).isoformat(),
         "audio": audio.name,
         "model": args.model,
+        "device": args.device,
+        "compute_type": args.compute_type,
+        "faster_whisper_version": fw_version,
         "language": getattr(info, "language", "ar"),
         "language_probability": getattr(info, "language_probability", None),
         "duration": getattr(info, "duration", None),
@@ -76,7 +84,7 @@ def main() -> int:
         json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
     )
     print(f"MESO_FISH_REFERENCE_TRANSCRIPT_OK={out_dir / 'reference.txt'}")
-    print(f"MESO_FISH_REFERENCE_TEXT={transcript}")
+    print(f"MESO_FISH_REFERENCE_TRANSCRIPT_CHARS={len(transcript)}")
     return 0
 
 
