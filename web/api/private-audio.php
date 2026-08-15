@@ -23,9 +23,11 @@ if (($_SESSION['meso_review_ok'] ?? false) !== true) {
 }
 
 $map = [
-    'A' => 'meso-A-1ref-ar.wav',
-    'B' => 'meso-B-3refs-ar.wav',
-    'C' => 'meso-C-5refs-ar.wav',
+    'S1' => 'meso-S1-single-ar.wav',
+    'S2' => 'meso-S2-single-ar.wav',
+    'S3' => 'meso-S3-single-ar.wav',
+    'S4' => 'meso-S4-single-ar.wav',
+    'S5' => 'meso-S5-single-ar.wav',
 ];
 $key = strtoupper(trim((string)($_GET['sample'] ?? '')));
 if (!isset($map[$key])) {
@@ -33,7 +35,7 @@ if (!isset($map[$key])) {
     exit;
 }
 
-$root = 'C:\\MesoAI\\private\\evaluation\\generated\\xtts-v1';
+$root = 'C:\\MesoAI\\private\\evaluation\\generated\\xtts-single-ref-v2';
 $rootReal = realpath($root);
 $file = $root . '\\' . $map[$key];
 $fileReal = realpath($file);
