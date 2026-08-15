@@ -17,28 +17,29 @@
 </style></head><body>
 <div class="app"><aside class="side"><div class="brand"><div class="mark">M</div>MesoAI</div><div class="sideCard"><small>Mode</small><strong>APPLY</strong><span class="badge"><i class="dot"></i> Voice fidelity</span></div><div class="sideNote">MesoAI is isolated from KDT. Raw WhatsApp audio and private text remain outside the public web root and outside Git.</div></aside>
 <main class="main"><header class="top"><b>MesoAI · Voice Lab</b><span id="statusText">Loading status…</span></header><div class="wrap">
-<div class="hero"><h1>Voice first.</h1><p>The current milestone is to turn high-confidence Maissoun voice notes into a reproducible reference profile, then compare synthesis engines and improve fidelity before any memory or persona work begins.</p></div>
-<div class="metrics"><div class="card"><small>Maissoun audio</small><strong id="target">156</strong><em>sender-labelled clips</em></div><div class="card"><small>Jamal negatives</small><strong id="negative">36</strong><em>speaker separation</em></div><div class="card"><small>Quality passed</small><strong id="passed">69</strong><em>conservative acoustic gate</em></div><div class="card"><small>Reference set</small><strong id="selected">20</strong><em>first synthesis candidates</em></div></div>
+<div class="hero"><h1>Voice first.</h1><p>All source voice notes have now gone through the deeper acoustic pass. The first 20-reference private pack is prepared; synthesis is the only remaining gated step before engine comparison.</p></div>
+<div class="metrics"><div class="card"><small>Maissoun audio</small><strong id="target">156</strong><em>sender-labelled clips</em></div><div class="card"><small>Jamal negatives</small><strong id="negative">36</strong><em>speaker separation</em></div><div class="card"><small>Deep usable</small><strong id="passed">130</strong><em>after acoustic analysis</em></div><div class="card"><small>Reference set</small><strong id="selected">20</strong><em>private normalized pack</em></div></div>
 <div class="section"><h2>Phase 1 pipeline</h2><div class="steps">
 <div class="step"><div class="n">1</div><div><b>Sender separation</b><small>Maissoun vs Jamal from 1-to-1 WhatsApp metadata</small></div><span class="ok">READY</span></div>
-<div class="step"><div class="n">2</div><div><b>Acoustic quality screening</b><small>Duration, silence, level and clipping checks</small></div><span class="ok">69 PASSED</span></div>
-<div class="step"><div class="n">3</div><div><b>Reference normalization</b><small>Derived mono 24 kHz PCM16 WAV; originals remain immutable</small></div><span class="ok" id="norm">READY</span></div>
-<div class="step"><div class="n">4</div><div><b>Voice profile build</b><small>SHA256-backed local profile with provenance</small></div><span class="ok" id="profile">READY</span></div>
-<div class="step"><div class="n">5</div><div><b>XTTS / Fish synthesis comparison</b><small>Generate matched test phrases and score speaker similarity</small></div><span class="lock" id="synth">LOCKED</span></div>
+<div class="step"><div class="n">2</div><div><b>Deep acoustic screening</b><small>Duration, silence, noise floor/SNR proxy, clipping, spectral consistency and pitch diversity</small></div><span class="ok" id="deep">192 ANALYZED</span></div>
+<div class="step"><div class="n">3</div><div><b>Reference normalization</b><small>Derived mono 24 kHz PCM16 WAV; originals remain immutable</small></div><span class="ok" id="norm">PREPARED</span></div>
+<div class="step"><div class="n">4</div><div><b>Voice profile build</b><small>SHA256-backed local profile with provenance</small></div><span class="ok" id="profile">PREPARED</span></div>
+<div class="step"><div class="n">5</div><div><b>XTTS / Fish synthesis comparison</b><small>Matched Arabic test phrases, engine A/B output and speaker-fidelity scoring</small></div><span class="lock" id="synth">LOCKED</span></div>
 </div></div>
-<div class="alert"><b>Voice authorization gate:</b> synthesis remains locked until authorization for cloning this real person’s voice is recorded. Dataset preparation, normalization, ranking and profile construction can proceed without publishing any audio.</div>
+<div class="alert"><b>Authorization required:</b> before generating a clone of a real person’s voice, MesoAI requires an explicit record that Maissoun authorized this voice-cloning use. Preparation can continue, but synthesis remains disabled until that authorization is confirmed.</div>
 <div class="footer">Memory: disabled · Persona: disabled · Public audio: disabled · Private dataset stays off-web</div>
 </div></main></div>
 <script>
 fetch('api/status.php',{cache:'no-store'}).then(r=>r.json()).then(s=>{
  const text=v=>String(v??'').replaceAll('_',' ');
- document.getElementById('statusText').textContent=text(s.status||'voice_reference_pipeline_ready');
+ document.getElementById('statusText').textContent=text(s.status||'deep_reference_pack_ready_authorization_pending');
  if(s.target_audio!=null) target.textContent=s.target_audio;
  if(s.negative_audio!=null) negative.textContent=s.negative_audio;
- if(s.quality_passed!=null) passed.textContent=s.quality_passed;
+ if(s.deep_quality_usable!=null) passed.textContent=s.deep_quality_usable;
  if(s.selected_references!=null) selected.textContent=s.selected_references;
- if(s.normalization) norm.textContent=String(s.normalization).toUpperCase();
- if(s.profile_builder) profile.textContent=String(s.profile_builder).toUpperCase();
+ if(s.deep_analyzed!=null) deep.textContent=s.deep_analyzed+' ANALYZED';
+ if(s.normalization) norm.textContent=text(s.normalization).toUpperCase();
+ if(s.profile_builder) profile.textContent=text(s.profile_builder).toUpperCase();
  if(s.synthesis) synth.textContent=text(s.synthesis).toUpperCase();
 }).catch(()=>statusText.textContent='voice lab local');
 </script></body></html>
