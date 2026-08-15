@@ -33,9 +33,7 @@ Require-File $ReferenceTranscript 'Reference transcript'
 Require-File $TargetText 'Target text'
 Require-File $LicenseAcceptanceJson 'Fish license acceptance record'
 
-if ($ProjectSlug -notmatch '^[a-z0-9][a-z0-9_-]{1,31}$') {
-  throw 'ProjectSlug must be a short shell-safe identifier.'
-}
+if ($ProjectSlug -notmatch '^[a-z0-9][a-z0-9_-]{1,31}$') { throw 'ProjectSlug must be a short shell-safe identifier.' }
 if ($RemoteRoot -notmatch '^/workspace/[A-Za-z0-9._/-]+$' -or $RemoteRoot.Length -lt 20 -or $RemoteRoot.Contains('..')) {
   throw 'RemoteRoot must be a dedicated shell-safe path below /workspace/.'
 }
@@ -55,7 +53,7 @@ if ($scope -notmatch '(?i)(non[- ]?commercial|personal|evaluation|research)') {
   throw 'Fish license acceptance scope must state an allowed non-commercial/research purpose.'
 }
 
-foreach ($exe in @('ssh','scp','ssh-keyscan','ssh-keygen')) {
+foreach ($exe in @('ssh','scp','ssh-keygen')) {
   if (!(Get-Command $exe -ErrorAction SilentlyContinue)) { throw "Required OpenSSH tool is missing: $exe" }
 }
 
@@ -69,13 +67,16 @@ Require-File $runner 'Fish S2 runner'
 New-Item -ItemType Directory -Force -Path $LocalOutputDir | Out-Null
 $knownHosts = Join-Path ([System.IO.Path]::GetTempPath()) ("meso-known-hosts-{0}.txt" -f [guid]::NewGuid().ToString('N'))
 $target = "$RemoteUser@$RemoteHost"
-$sshCommon = @('-p', [string]$RemotePort, '-i', $SshKeyPath, '-o', 'BatchMode=yes', '-o', 'IdentitiesOnly=yes', '-o', "UserKnownHostsFile=$knownHosts", '-o', 'StrictHostKeyChecking=yes')
-$scpCommon = @('-P', [string]$RemotePort, '-i', $SshKeyPath, '-o', 'BatchMode=yes', '-o', 'IdentitiesOnly=yes', '-o', "UserKnownHostsFile=$knownHosts", '-o', 'StrictHostKeyChecking=yes')
 
 try {
-  $scan = & ssh-keyscan -p $RemotePort -- $RemoteHost 2>$null
-  if ($LASTEXITCODE -ne 0 -or !$scan) { throw 'Unable to obtain remote SSH host key.' }
-  Set-Content -LiteralPath $knownHosts -Value $scan -Encoding ascii
+  # Capture the host key with a zero-data authenticated connection, then verify it
+  # against the fingerprint recorded during Pod provisioning before any private file
+  # is copied.
+  $acceptArgs = @('-p', [string]$RemotePort, '-i', $SshKeyPath, '-o', 'BatchMode=yes', '-o', 'IdentitiesOnly=yes', '-o', "UserKnownHostsFile=$knownHosts", '-o', 'StrictHostKeyChecking=accept-new', '-o', 'ConnectTimeout=15')
+  $ready = & ssh @acceptArgs $target "printf 'ready'"
+  if ($LASTEXITCODE -ne 0 -or [string]($ready -join '') -notmatch 'ready') { throw 'Initial zero-data SSH authentication failed.' }
+  if (!(Test-Path -LiteralPath $knownHosts -PathType Leaf) -or (Get-Item -LiteralPath $knownHosts).Length -eq 0) { throw 'Remote SSH host key was not captured.' }
+
   $fingerprints = @(& ssh-keygen -lf $knownHosts -E sha256 2>$null)
   if ($LASTEXITCODE -ne 0 -or $fingerprints.Count -eq 0) { throw 'Unable to calculate SSH host-key fingerprint.' }
   $matched = $false
@@ -84,6 +85,9 @@ try {
   }
   if (!$matched) { throw 'Remote SSH host-key fingerprint does not match the expected provider fingerprint.' }
   Write-Host 'MESO_FISH_REMOTE_HOST_KEY_VERIFIED=true'
+
+  $sshCommon = @('-p', [string]$RemotePort, '-i', $SshKeyPath, '-o', 'BatchMode=yes', '-o', 'IdentitiesOnly=yes', '-o', "UserKnownHostsFile=$knownHosts", '-o', 'StrictHostKeyChecking=yes', '-o', 'ConnectTimeout=15')
+  $scpCommon = @('-P', [string]$RemotePort, '-i', $SshKeyPath, '-o', 'BatchMode=yes', '-o', 'IdentitiesOnly=yes', '-o', "UserKnownHostsFile=$knownHosts", '-o', 'StrictHostKeyChecking=yes')
 
   $mkdir = "umask 077; mkdir -p $RemoteRoot $RemoteRoot/output $SharedWorkRoot; chmod 700 $RemoteRoot"
   Invoke-Native 'ssh' ($sshCommon + @($target, $mkdir))
@@ -103,8 +107,10 @@ try {
     $localHash = (Get-FileHash -LiteralPath $item.Local -Algorithm SHA256).Hash.ToLowerInvariant()
     $remotePath = $RemoteRoot + '/' + $item.Remote
     $cmd = "sha256sum -- $remotePath | awk '{print `$1}'"
-    $remoteHash = (& ssh @sshCommon $target $cmd).Trim().ToLowerInvariant()
-    if ($LASTEXITCODE -ne 0 -or $remoteHash -ne $localHash) { throw "Remote hash mismatch for $($item.Remote)" }
+    $remoteRaw = & ssh @sshCommon $target $cmd
+    if ($LASTEXITCODE -ne 0) { throw "Unable to hash remote input: $($item.Remote)" }
+    $remoteHash = ([string]($remoteRaw -join '')).Trim().ToLowerInvariant()
+    if ($remoteHash -ne $localHash) { throw "Remote hash mismatch for $($item.Remote)" }
   }
   Write-Host 'MESO_FISH_REMOTE_INPUT_HASHES_VERIFIED=true'
 
@@ -152,8 +158,9 @@ try {
   # Fish source/model/runtime cache and may be reused by the next isolated project.
   try {
     if (Test-Path -LiteralPath $knownHosts) {
+      $sshCleanup = @('-p', [string]$RemotePort, '-i', $SshKeyPath, '-o', 'BatchMode=yes', '-o', 'IdentitiesOnly=yes', '-o', "UserKnownHostsFile=$knownHosts", '-o', 'StrictHostKeyChecking=yes', '-o', 'ConnectTimeout=10')
       $cleanup = "rm -rf -- $RemoteRoot"
-      & ssh @sshCommon $target $cleanup 2>$null | Out-Null
+      & ssh @sshCleanup $target $cleanup 2>$null | Out-Null
     }
   } catch {}
   Remove-Item -LiteralPath $knownHosts -Force -ErrorAction SilentlyContinue
