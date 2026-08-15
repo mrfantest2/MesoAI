@@ -1,4 +1,4 @@
-<?php declare(strict_types=1); ?>
+<?php declare(strict_types=1); /* MesoAI Phase 1 */ ?>
 <!doctype html>
 <html lang="en" dir="ltr">
 <head>
