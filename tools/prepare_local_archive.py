@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
 """Build the private MesoAI reference profile from a 1-to-1 WhatsApp export.
 
-The source archive is never modified. Chat text is used only to map audio attachments
-to sender metadata and is not copied into the private dataset.
+The source may be either the original WhatsApp ZIP (including .zip.bak) or an
+already-extracted export directory containing _chat.txt and its media. Source
+files are read-only; chat text is used only for attachment-to-sender mapping.
 """
 from __future__ import annotations
 import argparse, hashlib, json, re, subprocess, zipfile
@@ -59,9 +60,32 @@ def normalize(src: Path,dst: Path)->None:
     run(["ffmpeg","-nostdin","-hide_banner","-loglevel","error","-y","-i",str(src),
          "-vn","-ac","1","-ar","24000","-c:a","pcm_s16le",str(dst)])
 
+def load_source(source: Path):
+    """Return (chat_text, attachment_reader, source_label)."""
+    if source.is_file():
+        zf=zipfile.ZipFile(source)
+        chat_bytes=zf.read("_chat.txt")
+        names=set(zf.namelist())
+        def read_attachment(name: str):
+            if name not in names: return None
+            return zf.read(name)
+        return chat_bytes.decode("utf-8"), read_attachment, source.name, zf
+    if source.is_dir():
+        chat_path=source/"_chat.txt"
+        if not chat_path.is_file():
+            raise FileNotFoundError(f"_chat.txt not found in {source}")
+        chat_bytes=chat_path.read_bytes()
+        by_name={p.name:p for p in source.rglob("*") if p.is_file()}
+        def read_attachment(name: str):
+            direct=source/name
+            p=direct if direct.is_file() else by_name.get(Path(name).name)
+            return p.read_bytes() if p and p.is_file() else None
+        return chat_bytes.decode("utf-8"), read_attachment, source.name, None
+    raise FileNotFoundError(source)
+
 def main()->int:
     ap=argparse.ArgumentParser()
-    ap.add_argument("archive",type=Path)
+    ap.add_argument("source",type=Path)
     ap.add_argument("private_root",type=Path)
     ap.add_argument("--target",default="Maissoun Moussa")
     ap.add_argument("--negative",default="Jamal Bro")
@@ -70,22 +94,24 @@ def main()->int:
     ap.add_argument("--authorized-at",default="")
     args=ap.parse_args()
 
-    archive=args.archive.resolve()
+    source=args.source.resolve()
     root=args.private_root.resolve()
     raw=root/"dataset"
     refs=root/"profiles"/"meso"/"references"
     raw.mkdir(parents=True,exist_ok=True); refs.mkdir(parents=True,exist_ok=True)
     for role in ("target","negative","other"): (raw/role).mkdir(exist_ok=True)
 
+    chat, read_attachment, source_label, closer=load_source(source)
+    source_hash=hashlib.sha256(chat.encode("utf-8"))
     samples=[]
-    with zipfile.ZipFile(archive) as zf:
-        chat=zf.read("_chat.txt").decode("utf-8")
-        names=set(zf.namelist())
+    try:
         for m in ATTACH_RE.finditer(chat):
             ts,sender,name=m.groups(); sender=clean_sender(sender); name=name.strip()
-            if name not in names or Path(name).suffix.lower() not in AUDIO_EXT: continue
+            if Path(name).suffix.lower() not in AUDIO_EXT: continue
+            data=read_attachment(name)
+            if not data: continue
+            source_hash.update(hashlib.sha256(data).digest())
             role="target" if sender==args.target else "negative" if sender==args.negative else "other"
-            data=zf.read(name)
             dst=raw/role/Path(name).name
             if not dst.exists() or sha256_file(dst)!=sha256_bytes(data): dst.write_bytes(data)
             dur,sr,ch=probe(dst)
@@ -93,6 +119,8 @@ def main()->int:
                  "sha256":sha256_file(dst),"bytes":dst.stat().st_size,
                  "duration_s":round(dur,3),"sample_rate":sr,"channels":ch}
             row.update(metrics(dst,dur)); samples.append(row)
+    finally:
+        if closer is not None: closer.close()
 
     targets=[x for x in samples if x["role"]=="target" and 3 <= x["duration_s"] <= 45
              and x["silence_ratio"] <= .55 and x["quality_score"] >= args.min_score]
@@ -134,7 +162,7 @@ def main()->int:
     profile_path=root/"profiles"/"meso"/"profile.json"
     profile_path.write_text(json.dumps(profile,ensure_ascii=False,indent=2),encoding="utf-8")
     (root/"analysis.json").write_text(json.dumps(samples,ensure_ascii=False,indent=2),encoding="utf-8")
-    summary={"ok":True,"archive_sha256":sha256_file(archive),"audio_count":len(samples),
+    summary={"ok":True,"source":source_label,"source_sha256":source_hash.hexdigest(),"audio_count":len(samples),
              "target_count":sum(x["role"]=="target" for x in samples),
              "negative_count":sum(x["role"]=="negative" for x in samples),
              "eligible_target_count":len(targets),"selected_references":len(chosen),
