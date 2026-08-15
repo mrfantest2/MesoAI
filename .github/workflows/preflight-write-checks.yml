@@ -1,0 +1,75 @@
+name: MesoAI Preflight Write Checks
+
+on:
+  push:
+    branches:
+      - preflight-write/meso-next
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout branch
+        uses: actions/checkout@v4
+
+      - name: Shell syntax
+        run: bash -n tools/run_fish_s2_ephemeral.sh
+
+      - name: Python compile
+        run: python3 -m py_compile tools/*.py
+
+      - name: PowerShell handoff syntax
+        shell: pwsh
+        run: |
+          $text = Get-Content -LiteralPath deploy/fish_s2_remote_handoff.ps1 -Raw
+          [void][scriptblock]::Create($text)
+          Write-Host 'MESO_FISH_HANDOFF_POWERSHELL_SYNTAX=true'
+
+      - name: Install PHP CLI
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq php-cli
+
+      - name: PHP syntax
+        run: |
+          php -l web/includes/chat_auth.php
+          php -l web/chat/index.php
+          php -l web/api/chat.php
+          php -l web/api/local-chat-bootstrap.php
+          php -l web/api/status.php
+
+      - name: Public privacy invariants
+        run: |
+          if grep -RniE 'Jamal|negative_audio|negative_duration' web; then
+            echo 'Removed speaker information reappeared in public web source.' >&2
+            exit 1
+          fi
+          test ! -e web/api/local-xtts-license.php
+          if grep -nE 'onclick=|<script>[[:space:]]*$' web/chat/index.php; then
+            echo 'Inline chat JavaScript reappeared.' >&2
+            exit 1
+          fi
+          echo 'MESO_PUBLIC_PRIVACY_STATIC_OK=true'
+
+      - name: Fish fail-closed invariants
+        run: |
+          grep -q 'MESO_FISH_LICENSE_ACCEPTED' tools/run_fish_s2_ephemeral.sh
+          grep -q 'ExpectedHostKeySha256' deploy/fish_s2_remote_handoff.ps1
+          grep -q 'MESO_FISH_REMOTE_INPUT_HASHES_VERIFIED' deploy/fish_s2_remote_handoff.ps1
+          grep -q 'MESO_FISH_DOWNLOADED_OUTPUTS_VERIFIED' deploy/fish_s2_remote_handoff.ps1
+          echo 'MESO_FISH_PREFLIGHT_STATIC_OK=true'
+
+      - name: Reject private media in Git
+        run: |
+          bad="$(git ls-files | grep -Ei '\.(wav|mp3|m4a|aac|opus|ogg|flac|zip|7z)$' || true)"
+          if [ -n "$bad" ]; then
+            echo 'Private/media archive file extensions are tracked:' >&2
+            echo "$bad" >&2
+            exit 1
+          fi
+          echo 'MESO_NO_TRACKED_PRIVATE_MEDIA=true'
