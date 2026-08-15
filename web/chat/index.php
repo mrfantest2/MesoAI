@@ -6,7 +6,11 @@ header('Cache-Control: no-store');
 header('X-Content-Type-Options: nosniff');
 header('X-Frame-Options: DENY');
 header('Referrer-Policy: no-referrer');
-header("Content-Security-Policy: default-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-inline'; connect-src 'self'; img-src 'self' data:; frame-ancestors 'none'; base-uri 'none'; form-action 'self'");
+header('X-Robots-Tag: noindex, nofollow, noarchive');
+header('Cross-Origin-Opener-Policy: same-origin');
+header('Cross-Origin-Resource-Policy: same-origin');
+header('Permissions-Policy: camera=(), microphone=(), geolocation=(), payment=()');
+header("Content-Security-Policy: default-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self'; connect-src 'self'; img-src 'self' data:; frame-ancestors 'none'; base-uri 'none'; form-action 'self'; object-src 'none'");
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $action = (string)($_POST['action'] ?? '');
@@ -50,22 +54,13 @@ if (!$authorized && !$inviteValid && !isset($gateError)) http_response_code(403)
 <?php if (!$authorized): ?>
 <div class="gate"><main class="gateCard"><div class="brand"><div class="mark">M</div>MesoAI</div><h1>Private chat</h1>
 <?php if (isset($gateError)): ?><div class="err"><?=htmlspecialchars($gateError, ENT_QUOTES, 'UTF-8')?></div><?php endif; ?>
-<?php if ($inviteValid): ?><p>Your private chat invite is valid. Opening it creates a signed browser cookie; the invite itself is deleted after confirmation.</p><form method="post"><input type="hidden" name="action" value="authorize"><input type="hidden" name="token" value="<?=htmlspecialchars($queryToken, ENT_QUOTES, 'UTF-8')?>"><button type="submit">Open MesoAI Chat</button></form>
+<?php if ($inviteValid): ?><p>Your private chat invite is valid. Opening it creates a signed browser cookie; the invite itself is deleted after confirmation.</p><form method="post" autocomplete="off"><input type="hidden" name="action" value="authorize"><input type="hidden" name="token" value="<?=htmlspecialchars($queryToken, ENT_QUOTES, 'UTF-8')?>"><button type="submit">Open MesoAI Chat</button></form>
 <?php else: ?><p>This page requires a private MesoAI chat invite.</p><a class="back" href="/meso/">Return to MesoAI</a><?php endif; ?></main></div>
 <?php else: ?>
 <div class="shell"><aside class="side"><div class="brand"><div class="mark">M</div>MesoAI</div>
 <div class="panel"><div class="label">Preflight state</div><div class="status"><span>Memory</span><span class="pill">OFF</span></div><div class="status"><span>Persona</span><span class="pill">OFF</span></div><div class="status"><span>Voice</span><span class="pill warn">PENDING</span></div><div class="status"><span>Chat</span><span class="pill good">PRIVATE</span></div></div>
-<div class="panel"><button type="button" onclick="newChat()">＋ New conversation</button><a href="/meso/" style="margin-top:8px">← Voice Lab</a><form method="post" style="margin-top:8px"><input type="hidden" name="action" value="logout"><button type="submit">Sign out</button></form></div>
+<div class="panel"><button id="newChatBtn" type="button">＋ New conversation</button><a href="/meso/" style="margin-top:8px">← Voice Lab</a><form method="post" style="margin-top:8px"><input type="hidden" name="action" value="logout"><button type="submit">Sign out</button></form></div>
 <div class="note">Stateless preflight chat. No MesoAI memory lookup, no persona simulation, no KDT database access, and no server-side conversation archive.</div></aside>
-<main class="main"><header class="top"><strong>MesoAI · Chat</strong><span id="status">Private text preflight</span></header><div class="chat"><section id="messages" class="messages"><div class="empty"><div class="orb">✦</div><strong>Text chat is ready</strong><div style="margin-top:7px">This stage is intentionally generic. MesoAI is not yet using Maissoun memory, persona, or cloned voice.</div></div></section><section class="composer"><div class="composeRow"><textarea id="message" maxlength="8000" placeholder="Message MesoAI…"></textarea><button id="send" class="send" type="button" onclick="sendText()">Send</button></div><small>Current-page context only · Memory off · Persona off · Voice pending</small></section></div></main></div>
-<script>
-'use strict';
-const history=[],$=id=>document.getElementById(id);
-const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
-function add(role,text,meta=''){const root=$('messages');if(root.querySelector('.empty'))root.innerHTML='';const d=document.createElement('div');d.className='msg '+role;d.innerHTML='<div class="role">'+esc(role)+(meta?' · '+esc(meta):'')+'</div>'+esc(text);root.appendChild(d);root.scrollTop=root.scrollHeight}
-function busy(v){$('send').disabled=v;$('message').disabled=v;$('status').textContent=v?'Thinking…':'Private text preflight'}
-function newChat(){history.length=0;$('messages').innerHTML='<div class="empty"><div class="orb">✦</div><strong>New conversation</strong><div style="margin-top:7px">No history was retained.</div></div>';$('message').focus()}
-async function sendText(){const text=$('message').value.trim();if(!text)return;const prior=history.slice(-12);$('message').value='';add('user',text);history.push({role:'user',content:text});busy(true);try{const r=await fetch('/meso/api/chat.php',{method:'POST',credentials:'same-origin',cache:'no-store',headers:{'Content-Type':'application/json','Accept':'application/json'},body:JSON.stringify({message:text,history:prior})});let b={};try{b=await r.json()}catch(_){b={ok:false,error:'invalid_json'}}if(r.status===403){location.reload();return}if(!r.ok||!b.ok)throw new Error(b.message||b.error||('HTTP '+r.status));add('assistant',b.reply,(b.provider||'')+(b.model?' · '+b.model:''));history.push({role:'assistant',content:b.reply})}catch(e){add('assistant','Chat error: '+e.message,'system')}finally{busy(false);$('message').focus()}}
-$('message').addEventListener('keydown',e=>{if(e.key==='Enter'&&(e.ctrlKey||e.metaKey)){e.preventDefault();sendText()}});$('message').focus();
-</script>
+<main class="main"><header class="top"><strong>MesoAI · Chat</strong><span id="status">Private text preflight</span></header><div class="chat"><section id="messages" class="messages"><div class="empty"><div class="orb">✦</div><strong>Text chat is ready</strong><div style="margin-top:7px">This stage is intentionally generic. MesoAI is not yet using Maissoun memory, persona, or cloned voice.</div></div></section><section class="composer"><div class="composeRow"><textarea id="message" maxlength="8000" placeholder="Message MesoAI…"></textarea><button id="send" class="send" type="button">Send</button></div><small>Current-page context only · Memory off · Persona off · Voice pending</small></section></div></main></div>
+<script src="/meso/chat/chat.js" defer></script>
 <?php endif; ?></body></html>
