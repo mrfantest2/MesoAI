@@ -32,8 +32,10 @@ jobs:
 
       - name: Install PHP CLI
         run: |
-          sudo apt-get update -qq
-          sudo apt-get install -y -qq php-cli
+          if ! command -v php >/dev/null 2>&1; then
+            sudo apt-get update -qq
+            sudo apt-get install -y -qq php-cli
+          fi
 
       - name: PHP syntax
         run: |
@@ -45,8 +47,15 @@ jobs:
 
       - name: Public privacy invariants
         run: |
-          if grep -RniE 'Jamal|negative_audio|negative_duration' web; then
-            echo 'Removed speaker information reappeared in public web source.' >&2
+          if grep -RniE 'Jamal' web; then
+            echo 'Removed speaker name reappeared in public web source.' >&2
+            exit 1
+          fi
+          legacy="$(grep -RniE 'negative_audio|negative_duration' web || true)"
+          unexpected="$(printf '%s\n' "$legacy" | grep -vE '^web/api/status\.php:.*unset\(' || true)"
+          if [ -n "$unexpected" ]; then
+            echo 'Removed speaker fields reappeared outside the defensive status unset:' >&2
+            echo "$unexpected" >&2
             exit 1
           fi
           test ! -e web/api/local-xtts-license.php
