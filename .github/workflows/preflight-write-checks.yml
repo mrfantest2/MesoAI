@@ -26,11 +26,15 @@ jobs:
       - name: PowerShell deployment syntax
         shell: pwsh
         run: |
-          foreach ($path in @('deploy/fish_s2_remote_preflight.ps1','deploy/fish_s2_remote_handoff.ps1')) {
+          foreach ($path in @(
+            'deploy/fish_s2_remote_preflight.ps1',
+            'deploy/fish_s2_remote_handoff.ps1',
+            'deploy/fish_s2_run.ps1'
+          )) {
             $text = Get-Content -LiteralPath $path -Raw
             [void][scriptblock]::Create($text)
+            Write-Host "POWERSHELL_SYNTAX_OK=$path"
           }
-          Write-Host 'MESO_FISH_POWERSHELL_SYNTAX=true'
 
       - name: Install PHP CLI
         run: |
@@ -76,6 +80,15 @@ jobs:
           grep -q 'ExpectedHostKeySha256' deploy/fish_s2_remote_handoff.ps1
           grep -q 'MESO_FISH_REMOTE_INPUT_HASHES_VERIFIED' deploy/fish_s2_remote_handoff.ps1
           grep -q 'MESO_FISH_DOWNLOADED_OUTPUTS_VERIFIED' deploy/fish_s2_remote_handoff.ps1
+          grep -q 'MESO_FISH_ORCHESTRATOR_LICENSE_GATE' deploy/fish_s2_run.ps1
+          grep -q 'MESO_FISH_ORCHESTRATOR_ZERO_DATA_PREFLIGHT_COMPLETE' deploy/fish_s2_run.ps1
+          grep -q 'MESO_FISH_ORCHESTRATOR_PRIVATE_HANDOFF_COMPLETE' deploy/fish_s2_run.ps1
+          python3 - <<'PY'
+          from pathlib import Path
+          s = Path('deploy/fish_s2_run.ps1').read_text(encoding='utf-8')
+          assert s.index('& $preflight @preflightArgs') < s.index('& $handoff @handoffArgs')
+          print('MESO_FISH_ORCHESTRATOR_ORDER_OK=true')
+          PY
           echo 'MESO_FISH_PREFLIGHT_STATIC_OK=true'
 
       - name: Reject private media in Git
