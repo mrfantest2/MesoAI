@@ -1,0 +1,13 @@
+{
+  "ok": true,
+  "project": "MesoAI",
+  "phase": "voice_fidelity",
+  "status": "dataset_ready_for_quality_analysis",
+  "target_audio": 156,
+  "negative_audio": 36,
+  "target_duration_minutes": 55.6,
+  "preferred_target_clips": 101,
+  "memory_enabled": false,
+  "persona_enabled": false,
+  "public_audio": false
+}
