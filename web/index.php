@@ -1,51 +1,44 @@
-<?php declare(strict_types=1); /* MesoAI Phase 1 */ ?>
+<?php declare(strict_types=1); /* MesoAI voice lab */ ?>
 <!doctype html>
-<html lang="en" dir="ltr">
-<head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
-<meta name="theme-color" content="#090b12">
-<title>MesoAI</title>
+<html lang="en"><head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#090b12"><title>MesoAI Voice Lab</title>
 <style>
-:root{color-scheme:dark;--bg:#07080d;--panel:#0f121b;--panel2:#151925;--line:#242a39;--txt:#f6f7fb;--muted:#9299aa;--accent:#d8b4fe;--accent2:#8b5cf6;--good:#61d8a6;--shadow:0 24px 80px rgba(0,0,0,.35)}
-*{box-sizing:border-box}html,body{margin:0;min-height:100%;background:radial-gradient(circle at 50% -20%,#29203e 0,#0b0d14 30%,var(--bg) 62%);font:15px/1.45 Inter,ui-sans-serif,system-ui,-apple-system,Segoe UI,Roboto,Arial;color:var(--txt)}
-button,input,textarea{font:inherit}.app{min-height:100dvh;display:grid;grid-template-columns:280px minmax(0,1fr)}
-.sidebar{border-right:1px solid var(--line);padding:18px;display:flex;flex-direction:column;background:rgba(8,10,16,.78);backdrop-filter:blur(16px)}
-.brand{display:flex;align-items:center;gap:12px;font-weight:800;letter-spacing:-.02em;font-size:20px}.mark{width:40px;height:40px;border-radius:14px;background:linear-gradient(135deg,var(--accent),var(--accent2));display:grid;place-items:center;color:#111;font-weight:950;box-shadow:0 8px 30px rgba(139,92,246,.28)}
-.phase{margin-top:22px;padding:14px;border:1px solid var(--line);border-radius:16px;background:var(--panel)}.phase small{color:var(--muted);display:block}.phase strong{display:block;margin:4px 0 8px}.pill{display:inline-flex;align-items:center;gap:7px;border:1px solid #2b4d40;background:#10231d;color:#8ae7bd;border-radius:999px;padding:5px 9px;font-size:12px}.dot{width:7px;height:7px;border-radius:50%;background:var(--good);box-shadow:0 0 12px var(--good)}
-.note{margin-top:auto;color:var(--muted);font-size:12px;line-height:1.55}.main{min-width:0;display:flex;flex-direction:column;min-height:100dvh}.top{height:68px;border-bottom:1px solid var(--line);display:flex;align-items:center;padding:0 22px;background:rgba(7,8,13,.55);backdrop-filter:blur(14px);position:sticky;top:0;z-index:5}.top b{font-size:14px}.top span{margin-left:auto;color:var(--muted);font-size:12px}
-.chat{width:min(850px,100%);margin:auto;padding:56px 22px 150px}.hero{text-align:center;padding:28px 0 36px}.hero h1{font-size:clamp(32px,5vw,54px);letter-spacing:-.045em;margin:0 0 12px}.hero p{max-width:620px;margin:auto;color:var(--muted);font-size:16px}.cards{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin:28px 0}.card{border:1px solid var(--line);border-radius:18px;padding:16px;background:linear-gradient(180deg,var(--panel2),var(--panel));box-shadow:var(--shadow)}.card small{color:var(--muted)}.card strong{display:block;margin-top:8px;font-size:24px}.card em{display:block;color:var(--muted);font-style:normal;font-size:12px;margin-top:3px}
-.msg{max-width:690px;border:1px solid var(--line);background:var(--panel);border-radius:22px 22px 22px 6px;padding:16px 18px;margin:18px auto}.msg .who{font-size:12px;color:var(--accent);font-weight:700;margin-bottom:6px}.msg p{margin:0;color:#d7dbe7}.composerWrap{position:fixed;bottom:0;left:280px;right:0;padding:18px 22px calc(18px + env(safe-area-inset-bottom));background:linear-gradient(180deg,transparent,var(--bg) 28%)}.composer{max-width:850px;margin:auto;border:1px solid #32394b;background:#10131c;border-radius:24px;padding:10px 10px 10px 16px;display:flex;align-items:flex-end;gap:10px;box-shadow:0 18px 70px rgba(0,0,0,.5)}textarea{flex:1;resize:none;min-height:42px;max-height:130px;border:0;outline:0;background:transparent;color:var(--txt);padding:10px 4px}button{width:42px;height:42px;border:0;border-radius:14px;background:linear-gradient(135deg,var(--accent),var(--accent2));font-size:18px;cursor:pointer}.disabled{opacity:.55;pointer-events:none}.fine{max-width:850px;margin:7px auto 0;text-align:center;color:#666d7d;font-size:11px}
-@media(max-width:760px){.app{grid-template-columns:1fr}.sidebar{display:none}.composerWrap{left:0}.top{height:60px;padding:0 16px}.chat{padding:34px 14px 145px}.cards{grid-template-columns:1fr 1fr}.card:last-child{grid-column:1/-1}.hero{padding-top:18px}.hero h1{font-size:38px}}
-</style>
-</head>
-<body>
-<div class="app">
-  <aside class="sidebar">
-    <div class="brand"><div class="mark">M</div>MesoAI</div>
-    <div class="phase"><small>Current phase</small><strong>Voice fidelity</strong><span class="pill"><i class="dot"></i> Dataset preparation</span></div>
-    <div class="note">Private voice material is kept outside the public web root. Memory and persona modelling remain disabled until the voice is accepted.</div>
-  </aside>
-  <main class="main">
-    <header class="top"><b>MesoAI</b><span id="statusText">Checking voice lab…</span></header>
-    <section class="chat">
-      <div class="hero"><h1>Build the voice first.</h1><p>MesoAI is currently focused only on identifying the cleanest real voice references, comparing synthesis attempts, and improving fidelity.</p></div>
-      <div class="cards">
-        <div class="card"><small>Maissoun candidates</small><strong id="targetCount">156</strong><em>sender-labelled voice notes</em></div>
-        <div class="card"><small>Jamal negatives</small><strong id="negativeCount">36</strong><em>speaker-separation references</em></div>
-        <div class="card"><small>Preferred clips</small><strong id="preferredCount">101</strong><em>6–24 second initial window</em></div>
-      </div>
-      <div class="msg"><div class="who">MesoAI</div><p>Phase 1 is active. Private WhatsApp text is not published here. Chat and memory behavior will be enabled only after the voice pipeline is validated.</p></div>
-    </section>
-    <div class="composerWrap"><div class="composer disabled" title="Chat is intentionally disabled during voice-only Phase 1"><textarea placeholder="Chat unlocks after voice validation" disabled></textarea><button disabled>↑</button></div><div class="fine">Voice-only Phase 1 · no memory/persona inference</div></div>
-  </main>
-</div>
+:root{color-scheme:dark;--bg:#07080d;--panel:#0f121b;--panel2:#151925;--line:#252b3a;--txt:#f6f7fb;--muted:#9299aa;--accent:#d8b4fe;--accent2:#8b5cf6;--good:#63dda9;--warn:#f1c66f}
+*{box-sizing:border-box}html,body{margin:0;min-height:100%;background:radial-gradient(circle at 50% -15%,#2b203f 0,#0b0d14 31%,var(--bg) 62%);font:15px/1.45 Inter,ui-sans-serif,system-ui,-apple-system,Segoe UI,Roboto,Arial;color:var(--txt)}
+.app{min-height:100dvh;display:grid;grid-template-columns:280px minmax(0,1fr)}.side{border-right:1px solid var(--line);padding:20px;display:flex;flex-direction:column;background:rgba(8,10,16,.82);backdrop-filter:blur(16px)}
+.brand{display:flex;align-items:center;gap:12px;font-size:20px;font-weight:850}.mark{width:42px;height:42px;border-radius:14px;display:grid;place-items:center;background:linear-gradient(135deg,var(--accent),var(--accent2));color:#111;font-weight:950}.badge{display:inline-flex;align-items:center;gap:7px;border:1px solid #315347;background:#10241e;color:#91e9c0;border-radius:999px;padding:6px 10px;font-size:12px}.dot{width:7px;height:7px;border-radius:50%;background:var(--good)}
+.sideCard{margin-top:22px;padding:15px;border:1px solid var(--line);border-radius:17px;background:var(--panel)}.sideCard small,.muted{color:var(--muted)}.sideCard strong{display:block;margin:5px 0 10px}.sideNote{margin-top:auto;color:var(--muted);font-size:12px;line-height:1.55}
+.main{min-width:0}.top{height:68px;position:sticky;top:0;z-index:5;display:flex;align-items:center;padding:0 24px;border-bottom:1px solid var(--line);background:rgba(7,8,13,.64);backdrop-filter:blur(16px)}.top span{margin-left:auto;color:var(--muted);font-size:12px}.wrap{width:min(980px,100%);margin:auto;padding:48px 22px 70px}.hero{padding:10px 0 30px}.hero h1{font-size:clamp(34px,5vw,56px);letter-spacing:-.05em;margin:0 0 12px}.hero p{max-width:700px;color:var(--muted);font-size:16px;margin:0}
+.metrics{display:grid;grid-template-columns:repeat(4,1fr);gap:12px}.card{border:1px solid var(--line);border-radius:18px;padding:16px;background:linear-gradient(180deg,var(--panel2),var(--panel));box-shadow:0 20px 60px rgba(0,0,0,.28)}.card small{color:var(--muted)}.card strong{display:block;font-size:27px;margin-top:7px}.card em{display:block;color:var(--muted);font-size:12px;font-style:normal;margin-top:3px}
+.section{margin-top:22px;border:1px solid var(--line);border-radius:20px;background:var(--panel);overflow:hidden}.section h2{font-size:15px;margin:0;padding:16px 18px;border-bottom:1px solid var(--line)}.steps{padding:0 18px}.step{display:grid;grid-template-columns:34px 1fr auto;gap:12px;align-items:center;padding:15px 0;border-bottom:1px solid #1d2230}.step:last-child{border-bottom:0}.n{width:30px;height:30px;border-radius:10px;background:#1a1f2d;display:grid;place-items:center;font-weight:800;color:var(--accent)}.step b{display:block}.step small{color:var(--muted)}.ok{color:var(--good);font-size:12px}.lock{color:var(--warn);font-size:12px}
+.alert{margin-top:18px;padding:14px 16px;border:1px solid #5a4724;background:#211b10;border-radius:16px;color:#e9d29d}.alert b{color:#ffd98a}.footer{margin-top:22px;color:#6f7687;font-size:12px;text-align:center}
+@media(max-width:820px){.app{grid-template-columns:1fr}.side{display:none}.top{height:60px;padding:0 16px}.wrap{padding:30px 14px 50px}.metrics{grid-template-columns:1fr 1fr}.step{grid-template-columns:34px 1fr}.step>span:last-child{grid-column:2}}
+</style></head><body>
+<div class="app"><aside class="side"><div class="brand"><div class="mark">M</div>MesoAI</div><div class="sideCard"><small>Mode</small><strong>APPLY</strong><span class="badge"><i class="dot"></i> Voice fidelity</span></div><div class="sideNote">MesoAI is isolated from KDT. Raw WhatsApp audio and private text remain outside the public web root and outside Git.</div></aside>
+<main class="main"><header class="top"><b>MesoAI · Voice Lab</b><span id="statusText">Loading status…</span></header><div class="wrap">
+<div class="hero"><h1>Voice first.</h1><p>The current milestone is to turn high-confidence Maissoun voice notes into a reproducible reference profile, then compare synthesis engines and improve fidelity before any memory or persona work begins.</p></div>
+<div class="metrics"><div class="card"><small>Maissoun audio</small><strong id="target">156</strong><em>sender-labelled clips</em></div><div class="card"><small>Jamal negatives</small><strong id="negative">36</strong><em>speaker separation</em></div><div class="card"><small>Quality passed</small><strong id="passed">69</strong><em>conservative acoustic gate</em></div><div class="card"><small>Reference set</small><strong id="selected">20</strong><em>first synthesis candidates</em></div></div>
+<div class="section"><h2>Phase 1 pipeline</h2><div class="steps">
+<div class="step"><div class="n">1</div><div><b>Sender separation</b><small>Maissoun vs Jamal from 1-to-1 WhatsApp metadata</small></div><span class="ok">READY</span></div>
+<div class="step"><div class="n">2</div><div><b>Acoustic quality screening</b><small>Duration, silence, level and clipping checks</small></div><span class="ok">69 PASSED</span></div>
+<div class="step"><div class="n">3</div><div><b>Reference normalization</b><small>Derived mono 24 kHz PCM16 WAV; originals remain immutable</small></div><span class="ok" id="norm">READY</span></div>
+<div class="step"><div class="n">4</div><div><b>Voice profile build</b><small>SHA256-backed local profile with provenance</small></div><span class="ok" id="profile">READY</span></div>
+<div class="step"><div class="n">5</div><div><b>XTTS / Fish synthesis comparison</b><small>Generate matched test phrases and score speaker similarity</small></div><span class="lock" id="synth">LOCKED</span></div>
+</div></div>
+<div class="alert"><b>Voice authorization gate:</b> synthesis remains locked until authorization for cloning this real person’s voice is recorded. Dataset preparation, normalization, ranking and profile construction can proceed without publishing any audio.</div>
+<div class="footer">Memory: disabled · Persona: disabled · Public audio: disabled · Private dataset stays off-web</div>
+</div></main></div>
 <script>
 fetch('api/status.php',{cache:'no-store'}).then(r=>r.json()).then(s=>{
-  document.getElementById('statusText').textContent=(s.status||'voice_fidelity').replaceAll('_',' ');
-  if(s.target_audio!=null) document.getElementById('targetCount').textContent=s.target_audio;
-  if(s.negative_audio!=null) document.getElementById('negativeCount').textContent=s.negative_audio;
-  if(s.preferred_target_clips!=null) document.getElementById('preferredCount').textContent=s.preferred_target_clips;
-}).catch(()=>document.getElementById('statusText').textContent='Voice lab local');
-</script>
-</body></html>
+ const text=v=>String(v??'').replaceAll('_',' ');
+ document.getElementById('statusText').textContent=text(s.status||'voice_reference_pipeline_ready');
+ if(s.target_audio!=null) target.textContent=s.target_audio;
+ if(s.negative_audio!=null) negative.textContent=s.negative_audio;
+ if(s.quality_passed!=null) passed.textContent=s.quality_passed;
+ if(s.selected_references!=null) selected.textContent=s.selected_references;
+ if(s.normalization) norm.textContent=String(s.normalization).toUpperCase();
+ if(s.profile_builder) profile.textContent=String(s.profile_builder).toUpperCase();
+ if(s.synthesis) synth.textContent=text(s.synthesis).toUpperCase();
+}).catch(()=>statusText.textContent='voice lab local');
+</script></body></html>
