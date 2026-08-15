@@ -30,11 +30,18 @@ Fish S2 execution is intentionally gated:
 
 - no model/code download until Fish Audio Research License acceptance is explicitly recorded for an allowed non-commercial/research scope;
 - no private reference audio or transcript is committed to Git;
+- `deploy/fish_s2_run.ps1` is the intended entry point and enforces the execution order;
+- the orchestrator validates the local license record before any network operation;
+- `deploy/fish_s2_remote_preflight.ps1` performs a zero-data SSH/GPU/disk check before any private file transfer;
 - remote GPU transfer uses SSH with an expected SHA-256 host-key fingerprint;
 - uploaded input hashes are verified before inference;
 - generated output hashes are verified again after download;
 - the remote private working directory is deleted after the attempt;
 - destroying the temporary GPU instance remains a separate provider-side action.
+
+Required orchestration order:
+
+`local license gate -> zero-data remote preflight -> private handoff -> Fish S2 inference -> hash-verified download -> remote private-directory cleanup`
 
 Current Fish source pin used by the preflight runner:
 
