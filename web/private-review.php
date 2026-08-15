@@ -19,30 +19,78 @@ header('Referrer-Policy: no-referrer');
 
 $privateRoot = 'C:\\MesoAI\\private';
 $tokenPath = $privateRoot . '\\review-token.txt';
-$token = trim((string)($_GET['token'] ?? ''));
 
-if ($token !== '') {
+function fail_review(string $message, int $status = 403): never {
+    http_response_code($status);
+    header('Content-Type: text/html; charset=utf-8');
+    echo '<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>MesoAI Review</title><style>body{margin:0;background:#090711;color:#f5f1ff;font:16px/1.5 system-ui;padding:32px}.box{max-width:620px;margin:10vh auto;background:#151120;border:1px solid #2c2440;border-radius:18px;padding:22px}a{color:#c8a8ff}</style></head><body><div class="box"><h2>Private review unavailable</h2><p>' . htmlspecialchars($message, ENT_QUOTES, 'UTF-8') . '</p></div></body></html>';
+    exit;
+}
+
+// IMPORTANT: GET never consumes the token. This prevents browser/link-scanner
+// prefetches from burning a single-use review link before the user sees it.
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['open_review'])) {
+    $submitted = trim((string)($_POST['token'] ?? ''));
     $expected = is_file($tokenPath) ? trim((string)file_get_contents($tokenPath)) : '';
-    if ($expected === '' || !hash_equals($expected, $token)) {
-        http_response_code(403);
-        exit('Invalid or expired review token.');
+    if ($submitted === '' || $expected === '' || !hash_equals($expected, $submitted)) {
+        fail_review('Invalid or expired review token.');
     }
+
+    session_regenerate_id(true);
     $_SESSION['meso_review_ok'] = true;
     $_SESSION['meso_review_started'] = time();
-    @unlink($tokenPath); // consume the token immediately; session remains valid.
+    @unlink($tokenPath); // consume only after explicit user POST.
     header('Location: /meso/private-review.php', true, 303);
     exit;
 }
 
+$token = trim((string)($_GET['token'] ?? ''));
 if (($_SESSION['meso_review_ok'] ?? false) !== true) {
-    http_response_code(403);
-    exit('Private review session required.');
+    if ($token === '') {
+        fail_review('A review token is required.');
+    }
+    $expected = is_file($tokenPath) ? trim((string)file_get_contents($tokenPath)) : '';
+    if ($expected === '' || !hash_equals($expected, $token)) {
+        fail_review('Invalid or expired review token.');
+    }
+
+    // Token is valid, but intentionally NOT consumed yet. The explicit button
+    // below performs the POST that opens the authenticated browser session.
+    ?>
+    <!doctype html>
+    <html lang="en">
+    <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+    <meta name="robots" content="noindex,nofollow,noarchive">
+    <title>MesoAI Private Voice Review</title>
+    <style>
+    :root{color-scheme:dark;--bg:#090711;--card:#151120;--line:#2c2440;--text:#f5f1ff;--muted:#a99fbe;--accent:#8d5bea}
+    *{box-sizing:border-box}body{margin:0;background:radial-gradient(circle at top,#1a1230 0,#090711 48%);color:var(--text);font:15px/1.5 system-ui,-apple-system,Segoe UI,Roboto,sans-serif;min-height:100vh;display:grid;place-items:center;padding:20px}.card{width:min(100%,520px);background:linear-gradient(180deg,#171222,#110d1a);border:1px solid var(--line);border-radius:22px;padding:24px;box-shadow:0 18px 50px #0008}.eyebrow{font-size:12px;letter-spacing:.15em;text-transform:uppercase;color:#c5a9ff;font-weight:800}h1{font-size:30px;line-height:1.08;margin:8px 0 10px}p{color:var(--muted);margin:0 0 20px}.btn{width:100%;border:0;border-radius:14px;padding:15px 18px;background:linear-gradient(135deg,#9a65f4,#7044c5);color:white;font:700 16px system-ui;cursor:pointer}.small{font-size:12px;color:#827893;margin-top:14px}
+    </style>
+    </head>
+    <body>
+      <main class="card">
+        <div class="eyebrow">MesoAI · Private evaluation</div>
+        <h1>Voice samples are ready</h1>
+        <p>Your link is valid. Press the button below to open the private A/B/C voice review. This explicit action prevents browser prefetching from consuming the token.</p>
+        <form method="post" action="/meso/private-review.php" autocomplete="off">
+          <input type="hidden" name="token" value="<?= htmlspecialchars($token, ENT_QUOTES, 'UTF-8') ?>">
+          <button class="btn" type="submit" name="open_review" value="1">Open private review</button>
+        </form>
+        <div class="small">The token is consumed only after you press the button. Your resulting browser session remains private.</div>
+      </main>
+      <script>try{history.replaceState(null,'','/meso/private-review.php')}catch(e){}</script>
+    </body>
+    </html>
+    <?php
+    exit;
 }
 
 $variants = [
-    ['id' => 'A', 'title' => 'A — 1 reference', 'subtitle' => 'Single best reference', 'file' => 'meso-A-1ref-ar.wav', 'duration' => '10.295 s'],
-    ['id' => 'B', 'title' => 'B — 3 references', 'subtitle' => 'Three diverse references', 'file' => 'meso-B-3refs-ar.wav', 'duration' => '11.180 s'],
-    ['id' => 'C', 'title' => 'C — 5 references', 'subtitle' => 'Five diverse references', 'file' => 'meso-C-5refs-ar.wav', 'duration' => '11.319 s'],
+    ['id' => 'A', 'title' => 'A — 1 reference', 'subtitle' => 'Single best reference', 'duration' => '10.295 s'],
+    ['id' => 'B', 'title' => 'B — 3 references', 'subtitle' => 'Three diverse references', 'duration' => '11.180 s'],
+    ['id' => 'C', 'title' => 'C — 5 references', 'subtitle' => 'Five diverse references', 'duration' => '11.319 s'],
 ];
 ?>
 <!doctype html>
@@ -64,7 +112,7 @@ $variants = [
     <h1>First XTTS voice comparison</h1>
     <p>Same Arabic phrase, same engine, same GPU. Only the number of Maissoun reference clips changes between A, B and C.</p>
   </section>
-  <div class="notice">This page does not contain public audio files. Playback is streamed from the private MASTER-PC evaluation folder and requires this authenticated review session.</div>
+  <div class="notice">Playback is streamed from the private MASTER-PC evaluation folder. The WAV files remain outside the public web root and outside GitHub.</div>
   <section class="grid">
     <?php foreach ($variants as $v): ?>
       <article class="card">
