@@ -74,10 +74,13 @@ jobs:
       - name: Fish fail-closed invariants
         run: |
           grep -q 'MESO_FISH_LICENSE_ACCEPTED' tools/run_fish_s2_ephemeral.sh
+          grep -q 'PROJECT_SLUG' tools/run_fish_s2_ephemeral.sh
           grep -q 'ExpectedHostKeySha256' deploy/fish_s2_remote_preflight.ps1
           grep -q 'MESO_FISH_ZERO_DATA_REMOTE_PREFLIGHT' deploy/fish_s2_remote_preflight.ps1
           grep -q 'private_data_transferred = \$false' deploy/fish_s2_remote_preflight.ps1
           grep -q 'ExpectedHostKeySha256' deploy/fish_s2_remote_handoff.ps1
+          grep -q 'SharedWorkRoot' deploy/fish_s2_remote_handoff.ps1
+          grep -q 'ProjectSlug' deploy/fish_s2_remote_handoff.ps1
           grep -q 'MESO_FISH_REMOTE_INPUT_HASHES_VERIFIED' deploy/fish_s2_remote_handoff.ps1
           grep -q 'MESO_FISH_DOWNLOADED_OUTPUTS_VERIFIED' deploy/fish_s2_remote_handoff.ps1
           grep -q 'MESO_FISH_ORCHESTRATOR_LICENSE_GATE' deploy/fish_s2_run.ps1
@@ -87,7 +90,11 @@ jobs:
           from pathlib import Path
           s = Path('deploy/fish_s2_run.ps1').read_text(encoding='utf-8')
           assert s.index('& $preflight @preflightArgs') < s.index('& $handoff @handoffArgs')
-          print('MESO_FISH_ORCHESTRATOR_ORDER_OK=true')
+          h = Path('deploy/fish_s2_remote_handoff.ps1').read_text(encoding='utf-8')
+          assert 'KEEP_WORKDIR=1' in h
+          assert 'rm -rf -- $RemoteRoot' in h
+          assert 'rm -rf -- $SharedWorkRoot' not in h
+          print('MESO_FISH_SHARED_CACHE_ISOLATION_OK=true')
           PY
           echo 'MESO_FISH_PREFLIGHT_STATIC_OK=true'
 
