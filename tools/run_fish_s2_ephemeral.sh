@@ -4,10 +4,11 @@ set -euo pipefail
 # MesoAI Fish Audio S2 ephemeral evaluation runner.
 # Private inputs must already exist on the temporary Linux GPU host.
 # This script never uploads data. It fails closed until Fish Audio Research
-# License acceptance has been recorded by the local MesoAI control plane.
+# License acceptance has been recorded by the local control plane.
 
 FISH_COMMIT="${FISH_COMMIT:-e5e292632cb11e7a27b2b7487f58f612bc101e13}"
-WORKDIR="${WORKDIR:-/workspace/meso-fish-s2}"
+PROJECT_SLUG="${PROJECT_SLUG:-meso}"
+WORKDIR="${WORKDIR:-/workspace/fish-s2-shared}"
 PRIVATE_ROOT="${PRIVATE_ROOT:-/workspace/private}"
 REFERENCE_AUDIO="${REFERENCE_AUDIO:-$PRIVATE_ROOT/reference.wav}"
 REFERENCE_TEXT_FILE="${REFERENCE_TEXT_FILE:-$PRIVATE_ROOT/reference.txt}"
@@ -18,9 +19,9 @@ UV_EXTRA="${UV_EXTRA:-cu126}"
 MIN_VRAM_MIB="${MIN_VRAM_MIB:-23000}"
 MIN_FREE_GIB="${MIN_FREE_GIB:-30}"
 PURGE_PRIVATE_INPUTS="${PURGE_PRIVATE_INPUTS:-1}"
-KEEP_WORKDIR="${KEEP_WORKDIR:-0}"
+KEEP_WORKDIR="${KEEP_WORKDIR:-1}"
 
-export FISH_COMMIT OUTPUT_DIR
+export FISH_COMMIT OUTPUT_DIR PROJECT_SLUG
 
 cleanup() {
   local rc=$?
@@ -34,6 +35,11 @@ cleanup() {
   exit "$rc"
 }
 trap cleanup EXIT
+
+if [[ ! "$PROJECT_SLUG" =~ ^[a-z0-9][a-z0-9_-]{1,31}$ ]]; then
+  echo "PROJECT_SLUG must be a short shell-safe identifier." >&2
+  exit 9
+fi
 
 # Fish Audio Research License acceptance is deliberately separate from the
 # subject's voice-cloning authorization. Never infer or silently set this.
@@ -56,7 +62,6 @@ for f in "$REFERENCE_AUDIO" "$REFERENCE_TEXT_FILE" "$TARGET_TEXT_FILE"; do
   [[ -f "$f" ]] || { echo "Missing required private input: $f" >&2; exit 13; }
 done
 
-# Keep private inputs and generated outputs under one deliberately isolated root.
 private_real="$(realpath "$PRIVATE_ROOT")"
 for f in "$REFERENCE_AUDIO" "$REFERENCE_TEXT_FILE" "$TARGET_TEXT_FILE"; do
   file_real="$(realpath "$f")"
@@ -88,8 +93,6 @@ TARGET_TEXT="$(tr '\n' ' ' < "$TARGET_TEXT_FILE" | sed -E 's/[[:space:]]+/ /g; s
 [[ ${#REFERENCE_TEXT} -le 4000 ]] || { echo "Reference transcript is unexpectedly large." >&2; exit 19; }
 [[ ${#TARGET_TEXT} -le 8000 ]] || { echo "Target text is unexpectedly large." >&2; exit 20; }
 
-# Install system packages only when explicitly enabled; otherwise fail with a
-# precise prerequisite message. This avoids silently mutating an unknown host.
 missing_packages=()
 command -v ffmpeg >/dev/null 2>&1 || missing_packages+=(ffmpeg)
 if (( ${#missing_packages[@]} > 0 )); then
@@ -119,7 +122,6 @@ if ! command -v uv >/dev/null 2>&1; then
   python3 -m pip install --upgrade uv
 fi
 
-# Official Fish S2 guidance uses Python 3.12 and CUDA extras such as cu126/cu128/cu129.
 uv sync --python 3.12 --extra "$UV_EXTRA"
 mkdir -p checkpoints/s2-pro
 uv run hf download "$HF_MODEL" --local-dir checkpoints/s2-pro
@@ -130,7 +132,7 @@ run_variant() {
   local top_p="$3"
   local top_k="$4"
   local seed="$5"
-  local out="$OUTPUT_DIR/meso-fish-${label}.wav"
+  local out="$OUTPUT_DIR/${PROJECT_SLUG}-fish-${label}.wav"
 
   uv run python fish_speech/models/text2semantic/inference.py \
     --checkpoint-path checkpoints/s2-pro \
@@ -150,7 +152,6 @@ run_variant() {
   sha256sum "$out"
 }
 
-# Controlled comparison: baseline, restrained sampling, more varied sampling.
 run_variant F1 1.00 0.90 30 42
 run_variant F2 0.85 0.85 25 43
 run_variant F3 1.10 0.92 35 44
@@ -160,8 +161,9 @@ import hashlib, json, os, wave
 from pathlib import Path
 
 out = Path(os.environ['OUTPUT_DIR'])
+slug = os.environ['PROJECT_SLUG']
 rows = []
-for p in sorted(out.glob('meso-fish-F*.wav')):
+for p in sorted(out.glob(f'{slug}-fish-F*.wav')):
     with wave.open(str(p), 'rb') as w:
         dur = w.getnframes() / float(w.getframerate())
         sample_rate = w.getframerate()
@@ -178,6 +180,7 @@ if len(rows) != 3:
     raise SystemExit(f'expected 3 Fish outputs, got {len(rows)}')
 report = {
     'engine': 'Fish Audio S2 Pro',
+    'project_slug': slug,
     'fish_commit': os.environ['FISH_COMMIT'],
     'license_acceptance_verified_before_run': True,
     'gpu': os.environ.get('GPU_NAME', ''),
@@ -189,4 +192,4 @@ report = {
 print('MESO_FISH_S2_OUTPUTS_VERIFIED=true')
 PY
 
-echo "Fish S2 evaluation complete: $OUTPUT_DIR"
+echo "Fish S2 evaluation complete for $PROJECT_SLUG: $OUTPUT_DIR"
