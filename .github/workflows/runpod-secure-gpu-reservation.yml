@@ -1,0 +1,51 @@
+name: Secure GPU reservation
+
+on:
+  push:
+    branches:
+      - preflight-write/meso-next
+    paths:
+      - .github/runpod-secure-reservation-trigger.txt
+
+permissions:
+  contents: read
+
+concurrency:
+  group: meso-runpod-secure-gpu-reservation
+  cancel-in-progress: false
+
+jobs:
+  reserve:
+    name: Reserve compliant Secure Cloud GPU
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      RUNPOD_API_KEY: ${{ secrets.RUNPOD_API_KEY }}
+      MIN_VRAM_GB: "24"
+      MAX_HOURLY_USD: "0.50"
+
+    steps:
+      - name: Checkout reservation code only
+        uses: actions/checkout@v4
+
+      - name: Validate reservation helper
+        run: python -m py_compile .github/scripts/runpod_secure_reserve.py
+
+      - name: Reserve Secure Cloud GPU
+        id: reserve
+        run: python .github/scripts/runpod_secure_reserve.py
+
+      - name: Publish non-sensitive reservation summary
+        if: success()
+        shell: bash
+        run: |
+          {
+            echo "## RunPod Secure GPU reservation"
+            echo "- Pod ID: \`${{ steps.reserve.outputs.pod_id }}\`"
+            echo "- GPU: ${{ steps.reserve.outputs.gpu_name }}"
+            echo "- VRAM: ${{ steps.reserve.outputs.vram_gb }} GB"
+            echo "- Hourly price: \$${{ steps.reserve.outputs.hourly_usd }}"
+            echo "- Secure Cloud: yes"
+            echo "- Reused existing compliant reservation: ${{ steps.reserve.outputs.reused_existing }}"
+            echo "- Private Meso data transferred: no"
+          } >> "$GITHUB_STEP_SUMMARY"
