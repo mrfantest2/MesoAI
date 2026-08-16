@@ -1,13 +1,27 @@
 param(
   [string]$RepoRoot = (Split-Path -Parent (Split-Path -Parent $MyInvocation.MyCommand.Path)),
   [string]$Target = 'C:\xampp\htdocs\meso',
-  [string]$BackupRoot = 'C:\MesoAI\private\web-backups'
+  [string]$BackupRoot = 'C:\MesoAI\private\web-backups',
+  [string]$ChatSttRuntime = 'C:\ProgramData\KhalilDigitalTwin\meso\chat-stt',
+  [string]$ChatSttPython = 'C:\ProgramData\KhalilDigitalTwin\meso\fish-whisper-venv\Scripts\python.exe'
 )
 $ErrorActionPreference = 'Stop'
 $web = Join-Path $RepoRoot 'web'
+$chatSttHelper = Join-Path $RepoRoot 'tools\transcribe_chat_audio.py'
 if (!(Test-Path -LiteralPath $web -PathType Container)) { throw "Web source not found: $web" }
+if (!(Test-Path -LiteralPath $chatSttHelper -PathType Leaf)) { throw "Meso chat STT helper not found: $chatSttHelper" }
+if (!(Test-Path -LiteralPath $ChatSttPython -PathType Leaf)) { throw "Meso local faster-whisper runtime not found: $ChatSttPython" }
 New-Item -ItemType Directory -Force -Path $Target | Out-Null
 New-Item -ItemType Directory -Force -Path $BackupRoot | Out-Null
+New-Item -ItemType Directory -Force -Path $ChatSttRuntime | Out-Null
+New-Item -ItemType Directory -Force -Path (Join-Path $ChatSttRuntime 'tmp') | Out-Null
+
+# Stage only executable STT helper code outside Apache's document root. Private
+# audio remains below C:\MesoAI\private and is never copied into /meso.
+Copy-Item -LiteralPath $chatSttHelper -Destination (Join-Path $ChatSttRuntime 'transcribe_chat_audio.py') -Force
+& $ChatSttPython -m py_compile (Join-Path $ChatSttRuntime 'transcribe_chat_audio.py')
+if ($LASTEXITCODE -ne 0) { throw 'Meso chat STT helper failed Python compile validation.' }
+Write-Host 'MESO_CHAT_STT_RUNTIME_STAGED=true'
 
 # Older deploys stored _previous_* inside the public web root. Move those backups
 # out of Apache's document root before installing the new version.
