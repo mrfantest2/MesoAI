@@ -1,0 +1,55 @@
+name: KDT Public Chat STT Probe
+
+on:
+  push:
+    branches:
+      - preflight-write/meso-next
+    paths:
+      - .github/kdt-public-chat-stt-probe-trigger.txt
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Probe public KDT health and voice route without private audio
+        shell: bash
+        run: |
+          set -euo pipefail
+          health_code="$(curl -sS --connect-timeout 10 --max-time 20 -o health.json -w '%{http_code}' https://agent.fantest.win/health || true)"
+          if [[ "$health_code" != "200" ]]; then
+            echo "KDT_PUBLIC_HEALTH_HTTP=$health_code"
+            exit 1
+          fi
+          python3 - <<'PY'
+          import json
+          data=json.load(open('health.json',encoding='utf-8'))
+          print('KDT_PUBLIC_HEALTH=true')
+          print('KDT_PUBLIC_SOURCE_SHA=' + str(data.get('source_sha') or data.get('source',{}).get('sha') or 'unknown'))
+          print('KDT_PUBLIC_BRAIN_PROVIDER=' + str(data.get('brain_provider') or 'unknown'))
+          PY
+
+          printf '\0\0\0\0' > invalid.wav
+          voice_code="$(curl -sS --connect-timeout 10 --max-time 30 -o voice.json -w '%{http_code}' \
+            -X POST \
+            -H 'Content-Type: audio/wav' \
+            --data-binary @invalid.wav \
+            https://agent.fantest.win/v1/chat/voice || true)"
+          echo "KDT_PUBLIC_CHAT_VOICE_HTTP=$voice_code"
+          if [[ "$voice_code" == "404" || "$voice_code" == "405" || "$voice_code" == "000" ]]; then
+            echo 'KDT public voice route is unavailable.' >&2
+            exit 1
+          fi
+          python3 - <<'PY'
+          import json
+          try:
+              data=json.load(open('voice.json',encoding='utf-8'))
+          except Exception:
+              data={}
+          err=str(data.get('error') or data.get('detail') or data.get('message') or '')
+          print('KDT_PUBLIC_CHAT_VOICE_ROUTE_PRESENT=true')
+          print('KDT_PUBLIC_CHAT_VOICE_RESPONSE=' + err[:160].replace('\n',' '))
+          PY
