@@ -1,0 +1,3 @@
+requested_at=2026-08-16T07:31:00+04:00
+mode=local_private_smoke
+provider_upload=false
