@@ -78,17 +78,24 @@ jobs:
 
       - name: Local chat STT isolation invariants
         run: |
-          grep -q "meso_chat_require_json_auth" web/api/transcribe.php
-          grep -q "provider_upload.*false" tools/transcribe_chat_audio.py
-          grep -q "C:\\\\MesoAI\\\\private\\\\chat-stt" tools/transcribe_chat_audio.py
-          grep -q "transcribe.php" web/chat/chat.js
-          grep -q "microphone=(self)" web/chat/index.php
-          grep -q "MESO_CHAT_STT_RUNTIME_STAGED=true" deploy/deploy_to_xampp.ps1
-          if grep -Ei 'api\.openai\.com|api\.anthropic\.com|googleapis\.com|deepgram|assemblyai' web/api/transcribe.php tools/transcribe_chat_audio.py; then
-            echo 'External STT provider reference detected in Meso local transcription path.' >&2
-            exit 1
-          fi
-          echo 'MESO_LOCAL_CHAT_STT_ISOLATION_OK=true'
+          python3 - <<'PY'
+          from pathlib import Path
+          endpoint = Path('web/api/transcribe.php').read_text(encoding='utf-8')
+          helper = Path('tools/transcribe_chat_audio.py').read_text(encoding='utf-8')
+          chat = Path('web/chat/chat.js').read_text(encoding='utf-8')
+          page = Path('web/chat/index.php').read_text(encoding='utf-8')
+          deploy = Path('deploy/deploy_to_xampp.ps1').read_text(encoding='utf-8')
+          assert 'meso_chat_require_json_auth' in endpoint
+          assert '"provider_upload": False' in helper
+          assert r'C:\MesoAI\private\chat-stt' in helper
+          assert 'transcribe.php' in chat
+          assert 'microphone=(self)' in page
+          assert 'MESO_CHAT_STT_RUNTIME_STAGED=true' in deploy
+          forbidden = ('api.openai.com', 'api.anthropic.com', 'googleapis.com', 'deepgram', 'assemblyai')
+          combined = (endpoint + '\n' + helper).lower()
+          assert not any(item in combined for item in forbidden)
+          print('MESO_LOCAL_CHAT_STT_ISOLATION_OK=true')
+          PY
 
       - name: Fish fail-closed invariants
         run: |
