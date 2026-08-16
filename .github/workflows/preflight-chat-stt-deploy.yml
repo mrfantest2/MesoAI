@@ -1,0 +1,71 @@
+name: MesoAI Preflight Chat STT Deploy
+
+on:
+  push:
+    branches:
+      - preflight-write/meso-next
+    paths:
+      - .github/meso-chat-stt-deploy-trigger.txt
+
+permissions:
+  contents: read
+
+concurrency:
+  group: mesoai-master-pc-deploy
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: [self-hosted, Windows, X64, khalil-master-pc]
+    timeout-minutes: 15
+    steps:
+      - name: Checkout exact Meso preflight source
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - name: Deploy local STT-enabled Meso web
+        shell: powershell -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command ". '{0}'"
+        run: |
+          $ErrorActionPreference='Stop'
+          .\deploy\deploy_to_xampp.ps1 `
+            -RepoRoot $env:GITHUB_WORKSPACE `
+            -Target 'C:\xampp\htdocs\meso'
+
+      - name: Verify deployed STT files and auth gate
+        shell: powershell -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command ". '{0}'"
+        run: |
+          $ErrorActionPreference='Stop'
+          $root='C:\xampp\htdocs\meso'
+          foreach($p in @(
+            (Join-Path $root 'api\transcribe.php'),
+            (Join-Path $root 'chat\chat.js'),
+            'C:\ProgramData\KhalilDigitalTwin\meso\chat-stt\transcribe_chat_audio.py'
+          )) {
+            if (!(Test-Path -LiteralPath $p -PathType Leaf)) { throw "Deployed Meso STT file missing: $p" }
+          }
+          $js=Get-Content -LiteralPath (Join-Path $root 'chat\chat.js') -Raw
+          if (!$js.Contains('/meso/api/transcribe.php')) { throw 'Deployed Meso chat JS is not wired to local STT endpoint.' }
+
+          $home=Invoke-WebRequest -UseBasicParsing -Uri 'http://127.0.0.1/meso/' -TimeoutSec 15
+          if ([int]$home.StatusCode -ne 200) { throw "Meso home returned HTTP $($home.StatusCode)" }
+
+          $status=0
+          try {
+            Invoke-WebRequest -UseBasicParsing `
+              -Uri 'http://127.0.0.1/meso/api/transcribe.php' `
+              -Method POST `
+              -ContentType 'audio/wav' `
+              -Body ([byte[]](1,2,3,4)) `
+              -TimeoutSec 15 `
+              -ErrorAction Stop | Out-Null
+            $status=200
+          } catch {
+            if ($_.Exception.Response -and $_.Exception.Response.StatusCode) {
+              $status=[int]$_.Exception.Response.StatusCode
+            }
+          }
+          if ($status -ne 403) { throw "Unauthenticated Meso STT endpoint expected 403, got $status" }
+          Write-Host 'MESO_CHAT_STT_DEPLOYED=true'
+          Write-Host 'MESO_CHAT_STT_AUTH_GATE_VERIFIED=true'
+          Write-Host "MESO_CHAT_STT_SOURCE_SHA=$env:GITHUB_SHA"
