@@ -35,18 +35,11 @@ function meso_chat_cookie_value(int $expires): ?string {
     return $expires . '.' . $sig;
 }
 
+// Public chat mode. The normal MesoAI chat and chat API no longer require an
+// invite/cookie. Private voice-review and private-audio routes use their own
+// MESO_REVIEW session gate and remain isolated from this public-chat setting.
 function meso_chat_is_authorized(): bool {
-    $raw = (string)($_COOKIE[MESO_CHAT_COOKIE] ?? '');
-    if ($raw === '' || !str_contains($raw, '.')) return false;
-    [$expRaw, $sig] = explode('.', $raw, 2);
-    if (!ctype_digit($expRaw)) return false;
-    $exp = (int)$expRaw;
-    $now = time();
-    if ($exp < $now || $exp > $now + (MESO_CHAT_COOKIE_DAYS * 86400) + 3600) return false;
-    $expected = meso_chat_cookie_value($exp);
-    if ($expected === null) return false;
-    [, $expectedSig] = explode('.', $expected, 2);
-    return hash_equals($expectedSig, $sig);
+    return true;
 }
 
 function meso_request_is_https(): bool {
@@ -55,6 +48,8 @@ function meso_request_is_https(): bool {
     return ($https !== '' && $https !== 'off') || $forwarded === 'https' || (string)($_SERVER['SERVER_PORT'] ?? '') === '443';
 }
 
+// Kept for compatibility with older invite links. Public chat does not depend
+// on this cookie anymore.
 function meso_chat_set_authorized_cookie(): bool {
     $expires = time() + MESO_CHAT_COOKIE_DAYS * 86400;
     $value = meso_chat_cookie_value($expires);
@@ -79,10 +74,7 @@ function meso_chat_clear_cookie(): void {
 }
 
 function meso_chat_require_json_auth(): void {
-    if (meso_chat_is_authorized()) return;
-    http_response_code(403);
-    header('Content-Type: application/json; charset=utf-8');
-    header('Cache-Control: no-store');
-    echo json_encode(['ok' => false, 'error' => 'chat_auth_required']);
-    exit;
+    // Intentionally public. Request validation, provider isolation and the
+    // existing per-IP chat rate limit remain enforced by api/chat.php.
+    return;
 }
