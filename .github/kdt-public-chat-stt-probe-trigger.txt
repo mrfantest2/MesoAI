@@ -1,2 +1,4 @@
-requested_at=2026-08-16T07:40:00+04:00
-mode=public_nonprivate_probe
+requested_at=2026-08-16T07:42:00+04:00
+mode=public_synthetic_speech_probe
+attempt=2
+private_audio=false
