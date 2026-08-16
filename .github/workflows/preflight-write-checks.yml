@@ -23,10 +23,14 @@ jobs:
       - name: Python compile
         run: python3 -m py_compile tools/*.py
 
+      - name: JavaScript syntax
+        run: node --check web/chat/chat.js
+
       - name: PowerShell deployment syntax
         shell: pwsh
         run: |
           foreach ($path in @(
+            'deploy/deploy_to_xampp.ps1',
             'deploy/fish_s2_remote_preflight.ps1',
             'deploy/fish_s2_remote_handoff.ps1',
             'deploy/fish_s2_run.ps1'
@@ -48,6 +52,7 @@ jobs:
           php -l web/includes/chat_auth.php
           php -l web/chat/index.php
           php -l web/api/chat.php
+          php -l web/api/transcribe.php
           php -l web/api/local-chat-bootstrap.php
           php -l web/api/status.php
 
@@ -70,6 +75,20 @@ jobs:
             exit 1
           fi
           echo 'MESO_PUBLIC_PRIVACY_STATIC_OK=true'
+
+      - name: Local chat STT isolation invariants
+        run: |
+          grep -q "meso_chat_require_json_auth" web/api/transcribe.php
+          grep -q "provider_upload.*false" tools/transcribe_chat_audio.py
+          grep -q "C:\\\\MesoAI\\\\private\\\\chat-stt" tools/transcribe_chat_audio.py
+          grep -q "transcribe.php" web/chat/chat.js
+          grep -q "microphone=(self)" web/chat/index.php
+          grep -q "MESO_CHAT_STT_RUNTIME_STAGED=true" deploy/deploy_to_xampp.ps1
+          if grep -Ei 'api\.openai\.com|api\.anthropic\.com|googleapis\.com|deepgram|assemblyai' web/api/transcribe.php tools/transcribe_chat_audio.py; then
+            echo 'External STT provider reference detected in Meso local transcription path.' >&2
+            exit 1
+          fi
+          echo 'MESO_LOCAL_CHAT_STT_ISOLATION_OK=true'
 
       - name: Fish fail-closed invariants
         run: |
