@@ -85,11 +85,20 @@ try {
         1 => ['pipe', 'w'],
         2 => ['pipe', 'w'],
     ];
-    $process = @proc_open([$python, $script, $path], $spec, $pipes, null, [
-        'MESO_CHAT_STT_TMP' => $tmpRoot,
-        'MESO_CHAT_STT_MODEL_ROOT' => meso_private_root() . '\\models\\faster-whisper',
-        'MESO_CHAT_STT_MODEL' => trim((string)(getenv('MESO_CHAT_STT_MODEL') ?: 'small')),
-    ], ['bypass_shell' => true]);
+    $childEnv = getenv();
+    if (!is_array($childEnv)) $childEnv = [];
+    $childEnv['MESO_CHAT_STT_TMP'] = $tmpRoot;
+    $childEnv['MESO_CHAT_STT_MODEL_ROOT'] = meso_private_root() . '\\models\\faster-whisper';
+    $childEnv['MESO_CHAT_STT_MODEL'] = trim((string)(getenv('MESO_CHAT_STT_MODEL') ?: 'small'));
+
+    $process = @proc_open(
+        [$python, $script, $path],
+        $spec,
+        $pipes,
+        null,
+        $childEnv,
+        ['bypass_shell' => true]
+    );
     if (!is_resource($process)) {
         throw new RuntimeException('local_stt_process_unavailable');
     }
