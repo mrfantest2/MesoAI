@@ -8,8 +8,10 @@ param(
 $ErrorActionPreference = 'Stop'
 $web = Join-Path $RepoRoot 'web'
 $chatSttHelper = Join-Path $RepoRoot 'tools\transcribe_chat_audio.py'
+$pwaIconGenerator = Join-Path $RepoRoot 'deploy\generate_pwa_icons.ps1'
 if (!(Test-Path -LiteralPath $web -PathType Container)) { throw "Web source not found: $web" }
 if (!(Test-Path -LiteralPath $chatSttHelper -PathType Leaf)) { throw "Meso chat STT helper not found: $chatSttHelper" }
+if (!(Test-Path -LiteralPath $pwaIconGenerator -PathType Leaf)) { throw "Meso PWA icon generator not found: $pwaIconGenerator" }
 if (!(Test-Path -LiteralPath $ChatSttPython -PathType Leaf)) { throw "Meso local faster-whisper runtime not found: $ChatSttPython" }
 New-Item -ItemType Directory -Force -Path $Target | Out-Null
 New-Item -ItemType Directory -Force -Path $BackupRoot | Out-Null
@@ -43,6 +45,27 @@ if ($existing) {
 }
 
 Copy-Item -Path (Join-Path $web '*') -Destination $Target -Recurse -Force
+
+# PNG app icons are generated on the Windows deployment target from versioned
+# source code, avoiding binary icon blobs while still satisfying mobile PWA
+# installability requirements.
+& $pwaIconGenerator -TargetWebRoot $Target
+
+$pwaRequired = @(
+  'app.webmanifest',
+  'sw.js',
+  'offline.html',
+  'pwa\install.js',
+  'icons\meso-192.png',
+  'icons\meso-512.png',
+  'icons\meso-maskable-512.png',
+  'icons\apple-touch-icon.png'
+)
+foreach ($relative in $pwaRequired) {
+  $path = Join-Path $Target $relative
+  if (!(Test-Path -LiteralPath $path -PathType Leaf)) { throw "Required Meso PWA asset missing after deployment: $relative" }
+}
+Write-Host 'MESO_PWA_DEPLOYED=true'
 
 # Defense in depth: no legacy backup directory may remain under the public root.
 $publicBackups = Get-ChildItem -LiteralPath $Target -Force -Directory -ErrorAction SilentlyContinue | Where-Object { $_.Name -like '_previous_*' }
