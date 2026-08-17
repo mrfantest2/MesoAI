@@ -22,9 +22,10 @@ function Require-File([string]$Path, [string]$Label) {
   if (!(Test-Path -LiteralPath $Path -PathType Leaf)) { throw "$Label not found: $Path" }
 }
 
-function Invoke-Native([string]$Exe, [string[]]$Args) {
-  & $Exe @Args
-  if ($LASTEXITCODE -ne 0) { throw "$Exe failed with exit code $LASTEXITCODE" }
+function Invoke-Native([string]$Exe, [string[]]$ArgumentList) {
+  & $Exe @ArgumentList
+  $exitCode = $LASTEXITCODE
+  if ($exitCode -ne 0) { throw "$Exe failed with exit code $exitCode" }
 }
 
 Require-File $SshKeyPath 'SSH key'
@@ -69,9 +70,6 @@ $knownHosts = Join-Path ([System.IO.Path]::GetTempPath()) ("meso-known-hosts-{0}
 $target = "$RemoteUser@$RemoteHost"
 
 try {
-  # Capture the host key with a zero-data authenticated connection, then verify it
-  # against the fingerprint recorded during Pod provisioning before any private file
-  # is copied.
   $acceptArgs = @('-p', [string]$RemotePort, '-i', $SshKeyPath, '-o', 'BatchMode=yes', '-o', 'IdentitiesOnly=yes', '-o', "UserKnownHostsFile=$knownHosts", '-o', 'StrictHostKeyChecking=accept-new', '-o', 'ConnectTimeout=15')
   $ready = & ssh @acceptArgs $target "printf 'ready'"
   if ($LASTEXITCODE -ne 0 -or [string]($ready -join '') -notmatch 'ready') { throw 'Initial zero-data SSH authentication failed.' }
@@ -154,8 +152,6 @@ try {
   }
   Write-Host 'MESO_FISH_DOWNLOADED_OUTPUTS_VERIFIED=true'
 } finally {
-  # Only the project-private root is deleted here. SharedWorkRoot contains public
-  # Fish source/model/runtime cache and may be reused by the next isolated project.
   try {
     if (Test-Path -LiteralPath $knownHosts) {
       $sshCleanup = @('-p', [string]$RemotePort, '-i', $SshKeyPath, '-o', 'BatchMode=yes', '-o', 'IdentitiesOnly=yes', '-o', "UserKnownHostsFile=$knownHosts", '-o', 'StrictHostKeyChecking=yes', '-o', 'ConnectTimeout=10')
