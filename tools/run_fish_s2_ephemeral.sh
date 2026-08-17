@@ -93,12 +93,19 @@ TARGET_TEXT="$(tr '\n' ' ' < "$TARGET_TEXT_FILE" | sed -E 's/[[:space:]]+/ /g; s
 [[ ${#REFERENCE_TEXT} -le 4000 ]] || { echo "Reference transcript is unexpectedly large." >&2; exit 19; }
 [[ ${#TARGET_TEXT} -le 8000 ]] || { echo "Target text is unexpectedly large." >&2; exit 20; }
 
+# Detect each build/runtime dependency independently. The base RunPod image
+# already contains ffmpeg, but Fish Speech's PyAudio dependency still needs
+# portaudio.h and audio tooling may need sox.h. Do not let an existing ffmpeg
+# binary suppress installation of those development headers.
 missing_packages=()
 command -v ffmpeg >/dev/null 2>&1 || missing_packages+=(ffmpeg)
+[[ -f /usr/include/portaudio.h ]] || missing_packages+=(portaudio19-dev)
+[[ -f /usr/include/sox.h ]] || missing_packages+=(libsox-dev)
 if (( ${#missing_packages[@]} > 0 )); then
   if [[ "${INSTALL_SYSTEM_DEPS:-0}" == "1" && "$(id -u)" == "0" && -x "$(command -v apt-get || true)" ]]; then
+    echo "Installing missing Fish system dependencies: ${missing_packages[*]}"
     apt-get update
-    DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends ffmpeg portaudio19-dev libsox-dev
+    DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends "${missing_packages[@]}"
   else
     echo "Missing Fish system dependency: ${missing_packages[*]}." >&2
     echo "Use a prepared Fish image or set INSTALL_SYSTEM_DEPS=1 on a disposable root-owned Ubuntu host." >&2
