@@ -1,14 +1,22 @@
 #!/usr/bin/env python3
-"""Private MASTER-PC client for the temporary MesoAI Fish S2 live service.
+"""Private MASTER-PC client for MesoAI Fish S2 live voice.
 
 The browser never talks to RunPod directly. This helper reads a private config
-from C:\\MesoAI\\private, accepts only reply text on stdin, sends an authenticated
-MessagePack request to Fish Speech, and writes a WAV to a caller-supplied path.
+from C:\\MesoAI\\private, accepts only reply text on stdin, and writes a verified
+WAV to a caller-supplied path.
+
+Two fail-closed transports are supported:
+- direct-proxy: the original temporary Pod Fish HTTP API.
+- runpod-serverless: queue-based RunPod Serverless. The authorized Maissoun
+  reference WAV/transcript are read only from MASTER-PC and sent per request;
+  the worker is instructed not to persist or memory-cache them.
 """
 
 from __future__ import annotations
 
 import argparse
+import base64
+import hashlib
 import json
 import os
 import sys
@@ -21,7 +29,9 @@ from pathlib import Path
 import msgpack
 
 DEFAULT_CONFIG = Path(r"C:\MesoAI\private\fish-live\config.json")
-MAX_RESPONSE_BYTES = 32 * 1024 * 1024
+MAX_RESPONSE_BYTES = 44 * 1024 * 1024
+MAX_REFERENCE_BYTES = 8 * 1024 * 1024
+EXPECTED_REFERENCE_SHA256 = "e7170ed139962f3945d990f3b9a793e85c8c9e7af7c1f59c18dbef8df08c95b8"
 
 
 class LiveTtsError(RuntimeError):
@@ -36,31 +46,52 @@ def _load_config(path: Path) -> dict:
     if not isinstance(cfg, dict):
         raise LiveTtsError("live_config_invalid")
 
-    endpoint = str(cfg.get("endpoint_url", "")).strip()
+    transport = str(cfg.get("transport", "direct-proxy") or "direct-proxy").strip().lower()
     api_key = str(cfg.get("api_key", "")).strip()
-    reference_id = str(cfg.get("reference_id", "")).strip()
     expires_at = int(cfg.get("expires_at_epoch", 0) or 0)
     max_chars = int(cfg.get("max_chars", 1200) or 1200)
-
-    parts = urllib.parse.urlparse(endpoint)
-    if parts.scheme != "https" or not parts.hostname or not parts.hostname.lower().endswith(".proxy.runpod.net"):
-        raise LiveTtsError("live_endpoint_invalid")
-    if parts.path.rstrip("/") != "/v1/tts" or parts.username or parts.password or parts.query or parts.fragment:
-        raise LiveTtsError("live_endpoint_invalid")
+    if transport not in {"direct-proxy", "runpod-serverless"}:
+        raise LiveTtsError("live_transport_invalid")
     if not api_key or len(api_key) < 24:
         raise LiveTtsError("live_api_key_invalid")
-    if not reference_id or not all(ch.isalnum() or ch in "_-" for ch in reference_id):
-        raise LiveTtsError("live_reference_invalid")
-    if expires_at <= int(time.time()):
+    if expires_at and expires_at <= int(time.time()):
         raise LiveTtsError("live_service_expired")
     if max_chars < 1 or max_chars > 4000:
         raise LiveTtsError("live_config_invalid")
 
-    cfg["endpoint_url"] = endpoint
+    cfg["transport"] = transport
     cfg["api_key"] = api_key
-    cfg["reference_id"] = reference_id
     cfg["expires_at_epoch"] = expires_at
     cfg["max_chars"] = max_chars
+
+    if transport == "direct-proxy":
+        endpoint = str(cfg.get("endpoint_url", "")).strip()
+        reference_id = str(cfg.get("reference_id", "")).strip()
+        parts = urllib.parse.urlparse(endpoint)
+        if parts.scheme != "https" or not parts.hostname or not parts.hostname.lower().endswith(".proxy.runpod.net"):
+            raise LiveTtsError("live_endpoint_invalid")
+        if parts.path.rstrip("/") != "/v1/tts" or parts.username or parts.password or parts.query or parts.fragment:
+            raise LiveTtsError("live_endpoint_invalid")
+        if not reference_id or not all(ch.isalnum() or ch in "_-" for ch in reference_id):
+            raise LiveTtsError("live_reference_invalid")
+        cfg["endpoint_url"] = endpoint
+        cfg["reference_id"] = reference_id
+        return cfg
+
+    endpoint_id = str(cfg.get("endpoint_id", "")).strip()
+    if not endpoint_id or len(endpoint_id) > 80 or not all(ch.isalnum() or ch in "_-" for ch in endpoint_id):
+        raise LiveTtsError("live_endpoint_invalid")
+    reference_audio = Path(str(cfg.get("reference_audio_path", "")))
+    reference_text = Path(str(cfg.get("reference_text_path", "")))
+    expected_sha = str(cfg.get("reference_sha256", EXPECTED_REFERENCE_SHA256)).lower().strip()
+    if expected_sha != EXPECTED_REFERENCE_SHA256:
+        raise LiveTtsError("live_reference_invalid")
+    if not reference_audio.is_file() or not reference_text.is_file():
+        raise LiveTtsError("live_reference_unavailable")
+    cfg["endpoint_id"] = endpoint_id
+    cfg["reference_audio_path"] = str(reference_audio)
+    cfg["reference_text_path"] = str(reference_text)
+    cfg["reference_sha256"] = expected_sha
     return cfg
 
 
@@ -83,7 +114,52 @@ def _request(req: urllib.request.Request, timeout: int) -> bytes:
     return data
 
 
+def _serverless_request(cfg: dict, payload: dict, wait_ms: int = 180000) -> dict:
+    endpoint_id = urllib.parse.quote(cfg["endpoint_id"], safe="")
+    url = f"https://api.runpod.ai/v2/{endpoint_id}/runsync?wait={wait_ms}"
+    body = json.dumps({"input": payload}, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
+    if len(body) > 19 * 1024 * 1024:
+        raise LiveTtsError("serverless_payload_too_large")
+    req = urllib.request.Request(
+        url,
+        data=body,
+        method="POST",
+        headers={
+            "Authorization": f"Bearer {cfg['api_key']}",
+            "Content-Type": "application/json",
+            "Accept": "application/json",
+            "User-Agent": "MesoAI-MASTER-PC-Serverless-Fish-Bridge/1.0",
+        },
+    )
+    raw = _request(req, timeout=max(200, int(wait_ms / 1000) + 20))
+    try:
+        response = json.loads(raw.decode("utf-8"))
+    except Exception as exc:
+        raise LiveTtsError("serverless_invalid_response") from exc
+    if not isinstance(response, dict):
+        raise LiveTtsError("serverless_invalid_response")
+    status = str(response.get("status", "")).upper()
+    output = response.get("output")
+    if status != "COMPLETED" or not isinstance(output, dict):
+        raise LiveTtsError("serverless_job_failed")
+    if output.get("ok") is not True:
+        raise LiveTtsError("serverless_fish_failed")
+    return output
+
+
 def health(cfg: dict) -> None:
+    if cfg["transport"] == "runpod-serverless":
+        output = _serverless_request(cfg, {"mode": "health"}, wait_ms=180000)
+        if str(output.get("engine")) != "fish-s2-pro":
+            raise LiveTtsError("fish_health_invalid")
+        if int(output.get("vram_mib", 0) or 0) < 23000:
+            raise LiveTtsError("fish_vram_invalid")
+        if output.get("private_data_used") is not False:
+            raise LiveTtsError("fish_health_privacy_invalid")
+        print("MESO_FISH_LIVE_HEALTH=true")
+        print("MESO_FISH_LIVE_TRANSPORT=runpod-serverless")
+        return
+
     endpoint = urllib.parse.urlparse(cfg["endpoint_url"])
     health_url = urllib.parse.urlunparse((endpoint.scheme, endpoint.netloc, "/v1/health", "", "", ""))
     req = urllib.request.Request(
@@ -95,6 +171,40 @@ def health(cfg: dict) -> None:
     if not data:
         raise LiveTtsError("fish_health_empty")
     print("MESO_FISH_LIVE_HEALTH=true")
+    print("MESO_FISH_LIVE_TRANSPORT=direct-proxy")
+
+
+def _verified_serverless_reference(cfg: dict) -> tuple[str, str]:
+    audio_path = Path(cfg["reference_audio_path"])
+    text_path = Path(cfg["reference_text_path"])
+    audio = audio_path.read_bytes()
+    if len(audio) < 44 or len(audio) > MAX_REFERENCE_BYTES:
+        raise LiveTtsError("live_reference_invalid")
+    if audio[:4] != b"RIFF" or audio[8:12] != b"WAVE":
+        raise LiveTtsError("live_reference_invalid")
+    actual = hashlib.sha256(audio).hexdigest()
+    if actual != cfg["reference_sha256"]:
+        raise LiveTtsError("live_reference_sha256_mismatch")
+    ref_text = " ".join(text_path.read_text(encoding="utf-8-sig").replace("\x00", " ").split()).strip()
+    if not ref_text or len(ref_text) > 4000:
+        raise LiveTtsError("live_reference_invalid")
+    return base64.b64encode(audio).decode("ascii"), ref_text
+
+
+def _validate_and_write_wav(wav: bytes, output: Path, expected_sha: str | None = None) -> None:
+    if len(wav) < 44 or len(wav) > 32 * 1024 * 1024:
+        raise LiveTtsError("fish_invalid_wav")
+    if wav[:4] != b"RIFF" or wav[8:12] != b"WAVE":
+        raise LiveTtsError("fish_invalid_wav")
+    actual = hashlib.sha256(wav).hexdigest()
+    if expected_sha and expected_sha.lower() != actual:
+        raise LiveTtsError("fish_wav_sha256_mismatch")
+    output.parent.mkdir(parents=True, exist_ok=True)
+    tmp = output.with_suffix(output.suffix + ".part")
+    tmp.write_bytes(wav)
+    os.replace(tmp, output)
+    print(f"MESO_FISH_LIVE_WAV_BYTES={len(wav)}")
+    print(f"MESO_FISH_LIVE_WAV_SHA256={actual}")
 
 
 def synthesize(cfg: dict, text: str, output: Path) -> None:
@@ -103,6 +213,28 @@ def synthesize(cfg: dict, text: str, output: Path) -> None:
         raise LiveTtsError("invalid_text")
     if len(clean) > int(cfg["max_chars"]):
         raise LiveTtsError("text_too_long")
+
+    if cfg["transport"] == "runpod-serverless":
+        reference_audio_b64, reference_text = _verified_serverless_reference(cfg)
+        result = _serverless_request(
+            cfg,
+            {
+                "text": clean,
+                "reference_audio_b64": reference_audio_b64,
+                "reference_text": reference_text,
+                "reference_sha256": cfg["reference_sha256"],
+            },
+            wait_ms=240000,
+        )
+        try:
+            wav = base64.b64decode(str(result.get("audio_wav_b64", "")), validate=True)
+        except Exception as exc:
+            raise LiveTtsError("fish_invalid_wav") from exc
+        if result.get("private_reference_persisted") is not False or result.get("reference_memory_cache") is not False:
+            raise LiveTtsError("fish_privacy_invariant_failed")
+        _validate_and_write_wav(wav, output, str(result.get("audio_sha256", "")))
+        print("MESO_FISH_LIVE_TRANSPORT=runpod-serverless")
+        return
 
     payload = {
         "text": clean,
@@ -133,14 +265,8 @@ def synthesize(cfg: dict, text: str, output: Path) -> None:
         },
     )
     wav = _request(req, timeout=95)
-    if len(wav) < 44 or wav[:4] != b"RIFF" or wav[8:12] != b"WAVE":
-        raise LiveTtsError("fish_invalid_wav")
-
-    output.parent.mkdir(parents=True, exist_ok=True)
-    tmp = output.with_suffix(output.suffix + ".part")
-    tmp.write_bytes(wav)
-    os.replace(tmp, output)
-    print(f"MESO_FISH_LIVE_WAV_BYTES={len(wav)}")
+    _validate_and_write_wav(wav, output)
+    print("MESO_FISH_LIVE_TRANSPORT=direct-proxy")
 
 
 def main() -> int:
