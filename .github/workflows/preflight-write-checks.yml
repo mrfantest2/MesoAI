@@ -37,7 +37,9 @@ jobs:
             'deploy/deploy_to_xampp.ps1',
             'deploy/fish_s2_remote_preflight.ps1',
             'deploy/fish_s2_remote_handoff.ps1',
-            'deploy/fish_s2_run.ps1'
+            'deploy/fish_s2_run.ps1',
+            'deploy/stage_fish_live_client.ps1',
+            'deploy/start_fish_live_service.ps1'
           )) {
             $text = Get-Content -LiteralPath $path -Raw
             [void][scriptblock]::Create($text)
@@ -110,6 +112,8 @@ jobs:
           launcher = Path('tools/start_fish_s2_live_api.sh').read_text(encoding='utf-8')
           endpoint = Path('web/api/tts.php').read_text(encoding='utf-8')
           ui = Path('web/chat/reply-audio.js').read_text(encoding='utf-8')
+          stage = Path('deploy/stage_fish_live_client.ps1').read_text(encoding='utf-8')
+          handoff = Path('deploy/start_fish_live_service.ps1').read_text(encoding='utf-8')
 
           assert 'meso_chat_require_json_auth' in endpoint
           assert 'fish-live-venv' in endpoint and 'python.exe' in endpoint
@@ -129,6 +133,12 @@ jobs:
           assert '--workers 1' in launcher
           assert 'references/$REFERENCE_ID' in launcher
           assert 'sample.lab' in launcher
+          assert 'msgpack==1.1.1' in stage
+          assert 'live_service_expired' in stage
+          assert 'ExpectedHostKeySha256' in handoff
+          assert 'MESO_FISH_LIVE_REMOTE_INPUT_HASHES_VERIFIED=true' in handoff
+          assert 'MESO_FISH_LIVE_PUBLIC_TTS_VERIFIED=true' in handoff
+          assert "Remove-Item -LiteralPath $configPath" in handoff
 
           public = endpoint + '\n' + ui
           forbidden_private = ('meso_ref_01.wav', 'reference.txt', 'api-key.txt', '/workspace/meso-live-private')
