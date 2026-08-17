@@ -36,9 +36,6 @@ $knownHosts = Join-Path ([System.IO.Path]::GetTempPath()) ("meso-preflight-known
 $target = "$RemoteUser@$RemoteHost"
 
 try {
-  # A zero-data authenticated connection captures the host key. No private project
-  # material is transferred before the captured fingerprint is compared with the
-  # provider fingerprint recorded during Pod provisioning.
   $acceptArgs = @(
     '-p', [string]$RemotePort,
     '-i', $SshKeyPath,
@@ -73,9 +70,9 @@ try {
     '-o', 'ConnectTimeout=12'
   )
 
-  # Deliberately read-only: no directories, installs, model downloads, or private files.
-  # Build LF-only UTF-8 bytes locally, Base64 them, and send only ASCII over stdin.
-  # This avoids Windows PowerShell BOM/CRLF and native argument-quoting behavior.
+  # Read-only zero-data probe. Normalize to LF/no-BOM and embed the resulting
+  # Base64 as a single-line remote command argument. This avoids Windows stdin
+  # encoding, CRLF injection, and multiline native-argument parsing entirely.
   $probe = @'
 set -e
 printf 'os='; uname -s
@@ -93,15 +90,11 @@ printf 'uv='; command -v uv >/dev/null 2>&1 && uv --version 2>&1 | head -n1 || e
   $probe = $probe.TrimStart([char]0xFEFF).Replace("`r`n", "`n").Replace("`r", "`n")
   $utf8NoBom = New-Object System.Text.UTF8Encoding($false)
   $encodedProbe = [Convert]::ToBase64String($utf8NoBom.GetBytes($probe))
+  if ($encodedProbe -notmatch '^[A-Za-z0-9+/=]+$') { throw 'Internal Base64 probe encoding is invalid.' }
 
-  $previousOutputEncoding = $OutputEncoding
-  try {
-    $OutputEncoding = New-Object System.Text.ASCIIEncoding
-    $lines = @($encodedProbe | & ssh @sshCommon $target 'base64 -d | bash')
-    $probeExit = $LASTEXITCODE
-  } finally {
-    $OutputEncoding = $previousOutputEncoding
-  }
+  $remoteCommand = "printf '%s' '$encodedProbe' | base64 -d | bash"
+  $lines = @(& ssh @sshCommon $target $remoteCommand)
+  $probeExit = $LASTEXITCODE
   if ($probeExit -ne 0) { throw "ssh zero-data probe failed with exit code $probeExit" }
 
   $facts = @{}
