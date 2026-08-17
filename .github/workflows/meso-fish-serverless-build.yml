@@ -1,0 +1,105 @@
+name: MesoAI Fish Serverless Build
+
+on:
+  push:
+    branches: [preflight-write/meso-serverless]
+    paths:
+      - serverless/fish-s2/**
+      - .github/workflows/meso-fish-serverless-build.yml
+
+permissions:
+  contents: read
+  packages: write
+
+concurrency:
+  group: meso-fish-serverless-build
+  cancel-in-progress: true
+
+env:
+  IMAGE: ghcr.io/mrfantest2/mesoai-fish-serverless
+
+jobs:
+  static-gate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Python syntax
+        run: python -m py_compile serverless/fish-s2/handler.py
+      - name: Enforce private-data and model invariants
+        shell: bash
+        run: |
+          set -euo pipefail
+          h=serverless/fish-s2/handler.py
+          d=serverless/fish-s2/Dockerfile
+          grep -F 'use_memory_cache": "off"' "$h"
+          grep -F 'reference_audio_b64' "$h"
+          grep -F 'private_reference_persisted": False' "$h"
+          grep -F 'MIN_VRAM_MIB = 23000' "$h"
+          grep -F 'fishaudio/s2-pro' "$h"
+          grep -F 'HF_HUB_OFFLINE=1' "$d"
+          grep -F 'FISH_COMMIT=e5e292632cb11e7a27b2b7487f58f612bc101e13' "$d"
+          if grep -R -n -E 'C:\\MesoAI\\private|meso_ref_01\.wav|fish-license-acceptance\.json' serverless/fish-s2; then
+            echo 'Private MASTER-PC path/material leaked into Serverless build context.' >&2
+            exit 1
+          fi
+          echo 'MESO_SERVERLESS_STATIC_GATE=true'
+
+  build-publish:
+    needs: static-gate
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    outputs:
+      digest: ${{ steps.build.outputs.digest }}
+      image_tag: ${{ steps.vars.outputs.image_tag }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - id: vars
+        shell: bash
+        run: |
+          echo "image_tag=${IMAGE}:${GITHUB_SHA}" >> "$GITHUB_OUTPUT"
+      - name: Build and publish exact worker image
+        id: build
+        uses: docker/build-push-action@v6
+        with:
+          context: serverless/fish-s2
+          file: serverless/fish-s2/Dockerfile
+          platforms: linux/amd64
+          push: true
+          tags: |
+            ${{ env.IMAGE }}:${{ github.sha }}
+            ${{ env.IMAGE }}:preflight
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          provenance: true
+      - name: Record immutable image identity
+        shell: bash
+        run: |
+          test -n '${{ steps.build.outputs.digest }}'
+          echo 'MESO_SERVERLESS_IMAGE_BUILT=true'
+          echo 'MESO_SERVERLESS_IMAGE=${{ steps.vars.outputs.image_tag }}'
+          echo 'MESO_SERVERLESS_DIGEST=${{ steps.build.outputs.digest }}'
+
+  anonymous-pull-gate:
+    needs: build-publish
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Verify RunPod-compatible anonymous registry pull
+        shell: bash
+        run: |
+          set -euo pipefail
+          docker logout ghcr.io >/dev/null 2>&1 || true
+          rm -f "$HOME/.docker/config.json"
+          image='${{ needs.build-publish.outputs.image_tag }}'
+          docker pull "$image"
+          digest="$(docker inspect --format='{{index .RepoDigests 0}}' "$image")"
+          test -n "$digest"
+          echo "MESO_SERVERLESS_ANONYMOUS_PULL=$digest"
+          echo 'MESO_SERVERLESS_REGISTRY_READY=true'
