@@ -1,6 +1,16 @@
 name: MesoAI Fish Live Dynamic Preflight
 
 on:
+  workflow_dispatch:
+    inputs:
+      capacity_wait_minutes:
+        description: 'Bounded Secure Cloud capacity wait (1-20 minutes)'
+        required: false
+        default: '15'
+      live_minutes:
+        description: 'Bounded live session duration (5-60 minutes)'
+        required: false
+        default: '28'
   push:
     branches: [preflight-write/meso-next]
     paths:
@@ -43,3 +53,37 @@ jobs:
           if($text -match 'volumeInGb\s*=\s*[1-9]'){throw 'Persistent RunPod volume is forbidden.'}
           Write-Host 'MESO_FISH_LIVE_DYNAMIC_STATIC_OK=true'
           Write-Host 'RUNPOD_USED=false'
+
+  runpod-voice-lab:
+    if: github.event_name == 'workflow_dispatch'
+    needs: validate
+    runs-on: [self-hosted, Linux, X64, khalil-voice]
+    timeout-minutes: 80
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verify RunPod credential is configured
+        shell: pwsh
+        env:
+          RUNPOD_API_KEY: ${{ secrets.RUNPOD_API_KEY }}
+        run: |
+          if ([string]::IsNullOrWhiteSpace($env:RUNPOD_API_KEY)) {
+            throw 'RUNPOD_API_KEY is not configured for this repository/environment.'
+          }
+          Write-Host 'RUNPOD_API_KEY_PRESENT=true'
+      - name: Run bounded Secure Cloud Fish live preflight
+        shell: pwsh
+        env:
+          RUNPOD_API_KEY: ${{ secrets.RUNPOD_API_KEY }}
+          CAPACITY_WAIT_MINUTES: ${{ inputs.capacity_wait_minutes }}
+          LIVE_MINUTES: ${{ inputs.live_minutes }}
+        run: |
+          $capacityWait = [int]$env:CAPACITY_WAIT_MINUTES
+          $liveMinutes = [int]$env:LIVE_MINUTES
+          if ($capacityWait -lt 1 -or $capacityWait -gt 20) { throw 'capacity_wait_minutes must be 1-20.' }
+          if ($liveMinutes -lt 5 -or $liveMinutes -gt 60) { throw 'live_minutes must be 5-60.' }
+          & ./deploy/reserve_and_start_fish_live_service.ps1 `
+            -RunPodApiKey $env:RUNPOD_API_KEY `
+            -MaxHourlyUsd 0.50 `
+            -MinVramMiB 23000 `
+            -CapacityWaitMinutes $capacityWait `
+            -LiveMinutes $liveMinutes
