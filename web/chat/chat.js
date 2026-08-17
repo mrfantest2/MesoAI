@@ -260,3 +260,8 @@
   window.addEventListener('pagehide', stopTracks);
   input.focus();
 })();
+
+const replyAudioScript = document.createElement('script');
+replyAudioScript.src = '/meso/chat/reply-audio.js';
+replyAudioScript.defer = true;
+document.head.appendChild(replyAudioScript);
