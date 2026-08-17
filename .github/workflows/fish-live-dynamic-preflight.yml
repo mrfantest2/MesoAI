@@ -43,3 +43,31 @@ jobs:
           if($text -match 'volumeInGb\s*=\s*[1-9]'){throw 'Persistent RunPod volume is forbidden.'}
           Write-Host 'MESO_FISH_LIVE_DYNAMIC_STATIC_OK=true'
           Write-Host 'RUNPOD_USED=false'
+
+  runpod-voice-lab:
+    if: github.event_name == 'push' && contains(github.event.head_commit.message, '[runpod-voice-lab]')
+    needs: validate
+    runs-on: [self-hosted, Linux, X64, khalil-voice]
+    timeout-minutes: 80
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verify RunPod credential is configured
+        shell: pwsh
+        env:
+          RUNPOD_API_KEY: ${{ secrets.RUNPOD_API_KEY }}
+        run: |
+          if ([string]::IsNullOrWhiteSpace($env:RUNPOD_API_KEY)) {
+            throw 'RUNPOD_API_KEY is not configured for this repository/environment.'
+          }
+          Write-Host 'RUNPOD_API_KEY_PRESENT=true'
+      - name: Run bounded Secure Cloud Fish live preflight
+        shell: pwsh
+        env:
+          RUNPOD_API_KEY: ${{ secrets.RUNPOD_API_KEY }}
+        run: |
+          & ./deploy/reserve_and_start_fish_live_service.ps1 `
+            -RunPodApiKey $env:RUNPOD_API_KEY `
+            -MaxHourlyUsd 0.50 `
+            -MinVramMiB 23000 `
+            -CapacityWaitMinutes 15 `
+            -LiveMinutes 28
