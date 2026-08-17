@@ -18,13 +18,17 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Shell syntax
-        run: bash -n tools/run_fish_s2_ephemeral.sh
+        run: |
+          bash -n tools/run_fish_s2_ephemeral.sh
+          bash -n tools/start_fish_s2_live_api.sh
 
       - name: Python compile
         run: python3 -m py_compile tools/*.py
 
       - name: JavaScript syntax
-        run: node --check web/chat/chat.js
+        run: |
+          node --check web/chat/chat.js
+          node --check web/chat/reply-audio.js
 
       - name: PowerShell deployment syntax
         shell: pwsh
@@ -53,6 +57,7 @@ jobs:
           php -l web/chat/index.php
           php -l web/api/chat.php
           php -l web/api/transcribe.php
+          php -l web/api/tts.php
           php -l web/api/local-chat-bootstrap.php
           php -l web/api/status.php
 
@@ -95,6 +100,40 @@ jobs:
           combined = (endpoint + '\n' + helper).lower()
           assert not any(item in combined for item in forbidden)
           print('MESO_LOCAL_CHAT_STT_ISOLATION_OK=true')
+          PY
+
+      - name: Live Fish reply TTS invariants
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          client = Path('tools/meso_fish_live_client.py').read_text(encoding='utf-8')
+          launcher = Path('tools/start_fish_s2_live_api.sh').read_text(encoding='utf-8')
+          endpoint = Path('web/api/tts.php').read_text(encoding='utf-8')
+          ui = Path('web/chat/reply-audio.js').read_text(encoding='utf-8')
+
+          assert 'meso_chat_require_json_auth' in endpoint
+          assert r'C:\ProgramData\KhalilDigitalTwin\meso\fish-live-venv\Scripts\python.exe' in endpoint
+          assert r'C:\MesoAI\private\fish-live' in endpoint
+          assert 'proc_open' in endpoint
+          assert "X-Meso-Voice: fish-s2" in endpoint
+          assert '/meso/api/tts.php' in ui
+          assert 'Meso Fish S2' in ui
+          assert 'Browser fallback' in ui
+          assert 'speechSynthesis' in ui
+          assert 'msgpack.packb' in client
+          assert '.proxy.runpod.net' in client
+          assert 'reference_id' in client
+          assert 'MESO_FISH_LICENSE_ACCEPTED' in launcher
+          assert 'e5e292632cb11e7a27b2b7487f58f612bc101e13' in launcher
+          assert '--api-key' in launcher
+          assert '--workers 1' in launcher
+          assert 'references/$REFERENCE_ID' in launcher
+          assert 'sample.lab' in launcher
+
+          public = endpoint + '\n' + ui
+          forbidden_private = ('meso_ref_01.wav', 'reference.txt', 'api-key.txt', '/workspace/meso-live-private')
+          assert not any(item in public for item in forbidden_private)
+          print('MESO_FISH_LIVE_REPLY_TTS_STATIC_OK=true')
           PY
 
       - name: Fish fail-closed invariants
