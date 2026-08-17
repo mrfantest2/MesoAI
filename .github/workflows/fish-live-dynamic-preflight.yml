@@ -1,0 +1,45 @@
+name: MesoAI Fish Live Dynamic Preflight
+
+on:
+  push:
+    branches: [preflight-write/meso-next]
+    paths:
+      - deploy/reserve_and_start_fish_live_service.ps1
+      - deploy/start_fish_live_service.ps1
+      - .github/workflows/fish-live-dynamic-preflight.yml
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: Parse PowerShell helpers
+        shell: pwsh
+        run: |
+          foreach($path in @('deploy/reserve_and_start_fish_live_service.ps1','deploy/start_fish_live_service.ps1')){
+            [void][scriptblock]::Create((Get-Content -LiteralPath $path -Raw))
+            Write-Host "POWERSHELL_SYNTAX_OK=$path"
+          }
+      - name: Enforce capacity and privacy gates
+        shell: pwsh
+        run: |
+          $text=Get-Content -LiteralPath 'deploy/reserve_and_start_fish_live_service.ps1' -Raw
+          foreach($needle in @(
+            "secureCloud: true",
+            'availableGpuCounts',
+            'gpuCount = 1',
+            'volumeInGb = 0',
+            "'22/tcp','8080/http'",
+            'MaxHourlyUsd = 0.50',
+            'MinVramMiB = 23000',
+            'MESO_FISH_LIVE_ZERO_DATA_PREFLIGHT=true',
+            'start_fish_live_service.ps1',
+            'Invoke-RestMethod -Method Delete'
+          )){if(-not $text.Contains($needle)){throw "Missing dynamic live gate: $needle"}}
+          if($text -match 'volumeInGb\s*=\s*[1-9]'){throw 'Persistent RunPod volume is forbidden.'}
+          Write-Host 'MESO_FISH_LIVE_DYNAMIC_STATIC_OK=true'
+          Write-Host 'RUNPOD_USED=false'
