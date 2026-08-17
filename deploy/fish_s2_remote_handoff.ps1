@@ -23,8 +23,17 @@ function Require-File([string]$Path, [string]$Label) {
 }
 
 function Invoke-Native([string]$Exe, [string[]]$ArgumentList) {
-  & $Exe @ArgumentList
-  $exitCode = $LASTEXITCODE
+  $previousPreference = $ErrorActionPreference
+  try {
+    # Windows PowerShell converts native stderr into NativeCommandError records.
+    # Consequential success/failure is determined from the native exit code, not
+    # from whether the tool writes warnings or diagnostics to stderr.
+    $ErrorActionPreference = 'Continue'
+    & $Exe @ArgumentList
+    $exitCode = $LASTEXITCODE
+  } finally {
+    $ErrorActionPreference = $previousPreference
+  }
   if ($exitCode -ne 0) { throw "$Exe failed with exit code $exitCode" }
 }
 
