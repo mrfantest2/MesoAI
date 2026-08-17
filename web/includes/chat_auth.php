@@ -35,20 +35,6 @@ function meso_chat_cookie_value(int $expires): ?string {
     return $expires . '.' . $sig;
 }
 
-function meso_chat_is_authorized(): bool {
-    $raw = (string)($_COOKIE[MESO_CHAT_COOKIE] ?? '');
-    if ($raw === '' || !str_contains($raw, '.')) return false;
-    [$expRaw, $sig] = explode('.', $raw, 2);
-    if (!ctype_digit($expRaw)) return false;
-    $exp = (int)$expRaw;
-    $now = time();
-    if ($exp < $now || $exp > $now + (MESO_CHAT_COOKIE_DAYS * 86400) + 3600) return false;
-    $expected = meso_chat_cookie_value($exp);
-    if ($expected === null) return false;
-    [, $expectedSig] = explode('.', $expected, 2);
-    return hash_equals($expectedSig, $sig);
-}
-
 function meso_request_is_https(): bool {
     $https = strtolower((string)($_SERVER['HTTPS'] ?? ''));
     $forwarded = strtolower((string)($_SERVER['HTTP_X_FORWARDED_PROTO'] ?? ''));
@@ -66,6 +52,35 @@ function meso_chat_set_authorized_cookie(): bool {
         'httponly' => true,
         'samesite' => 'Strict',
     ]);
+}
+
+function meso_chat_direct_page_request(): bool {
+    if (strtoupper((string)($_SERVER['REQUEST_METHOD'] ?? 'GET')) !== 'GET') return false;
+    $path = (string)(parse_url((string)($_SERVER['REQUEST_URI'] ?? ''), PHP_URL_PATH) ?? '');
+    return rtrim($path, '/') === '/meso/chat';
+}
+
+function meso_chat_is_authorized(): bool {
+    $raw = (string)($_COOKIE[MESO_CHAT_COOKIE] ?? '');
+    if ($raw !== '' && str_contains($raw, '.')) {
+        [$expRaw, $sig] = explode('.', $raw, 2);
+        if (ctype_digit($expRaw)) {
+            $exp = (int)$expRaw;
+            $now = time();
+            if ($exp >= $now && $exp <= $now + (MESO_CHAT_COOKIE_DAYS * 86400) + 3600) {
+                $expected = meso_chat_cookie_value($exp);
+                if ($expected !== null) {
+                    [, $expectedSig] = explode('.', $expected, 2);
+                    if (hash_equals($expectedSig, $sig)) return true;
+                }
+            }
+        }
+    }
+
+    // Direct browser access no longer requires a one-time invite. The page
+    // issues the existing signed cookie; JSON APIs remain cookie-protected.
+    if (meso_chat_direct_page_request()) return meso_chat_set_authorized_cookie();
+    return false;
 }
 
 function meso_chat_clear_cookie(): void {
