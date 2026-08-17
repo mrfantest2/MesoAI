@@ -57,7 +57,7 @@ jobs:
   runpod-voice-lab:
     if: github.event_name == 'workflow_dispatch'
     needs: validate
-    runs-on: [self-hosted, Linux, X64, khalil-voice]
+    runs-on: [self-hosted, Windows, X64, khalil-voice]
     timeout-minutes: 80
     steps:
       - uses: actions/checkout@v4
