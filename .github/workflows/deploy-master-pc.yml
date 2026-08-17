@@ -1,4 +1,4 @@
-name: MesoAI MASTER-PC Deploy
+name: MesoAI Release Source Gate
 
 on:
   push:
@@ -8,36 +8,44 @@ on:
 permissions:
   contents: read
 
+# Keep the historical group so this GitHub-hosted gate cancels any stale
+# MesoAI-owned MASTER-PC deploy run that could never acquire a runner.
 concurrency:
   group: mesoai-master-pc-deploy
   cancel-in-progress: true
 
 jobs:
-  deploy:
-    runs-on: [self-hosted, Windows, X64, khalil-master-pc]
-    timeout-minutes: 10
+  verify-source:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
     steps:
-      - name: Checkout MesoAI
+      - name: Checkout canonical MesoAI source
         uses: actions/checkout@v4
         with:
           fetch-depth: 1
 
-      - name: Verify target path
-        shell: powershell
+      - name: Verify production deploy boundary
+        shell: bash
         run: |
-          $target = 'C:\xampp\htdocs\meso'
-          if ($target -ne 'C:\xampp\htdocs\meso') { throw 'Unexpected MesoAI web target' }
-          Write-Host "Deploy target: $target"
+          set -euo pipefail
+          test -f deploy/deploy_to_xampp.ps1
+          test -f web/chat/index.php
+          test -f web/chat/chat.js
+          test -f web/chat/reply-audio.js
+          test -f web/api/tts.php
+          test -f web/api/transcribe.php
+          test -f web/app.webmanifest
+          test -f web/sw.js
+          grep -q 'application/manifest+json' web/.htaccess
+          grep -q 'beforeinstallprompt' web/pwa/install.js
+          grep -q "url.pathname.startsWith('/meso/api/')" web/sw.js
+          echo 'MESO_MAIN_SOURCE_GATE=true'
+          echo 'MASTER_PC_DEPLOY_OWNER=Khalil-Digital-Twin/mesoai-deploy-bridge'
+          echo 'MASTER_PC_SELF_HOSTED_RUNNER_REQUIRED=false'
+          echo 'RUNPOD_STARTED=false'
 
-      - name: Deploy MesoAI web to XAMPP
-        shell: powershell
+      - name: Record deployment contract
+        shell: bash
         run: |
-          .\deploy\deploy_to_xampp.ps1 -RepoRoot $env:GITHUB_WORKSPACE -Target 'C:\xampp\htdocs\meso'
-
-      - name: Verify local MesoAI page
-        shell: powershell
-        run: |
-          $r = Invoke-WebRequest -Uri 'http://127.0.0.1/meso/' -UseBasicParsing -TimeoutSec 15
-          if ($r.StatusCode -ne 200) { throw "Local MesoAI returned HTTP $($r.StatusCode)" }
-          if ($r.Content -notmatch 'MesoAI') { throw 'Local page does not identify as MesoAI' }
-          Write-Host 'MesoAI local verification passed.'
+          echo 'MesoAI is the canonical product source.'
+          echo 'MASTER-PC deployment is intentionally executed only through the private KDT bridge.'
