@@ -2,7 +2,7 @@
 """MesoAI Fish S2 Pro RunPod Serverless queue worker.
 
 Privacy properties:
-- The worker image contains only public code and model runtime dependencies.
+- The worker image contains only public code/model runtime material.
 - The Maissoun reference WAV/transcript arrive only inside an authenticated
   RunPod job request from the trusted MASTER-PC bridge.
 - Reference bytes are passed directly to the local Fish API in MessagePack;
@@ -28,7 +28,7 @@ import runpod
 FISH_ROOT = Path("/app/fish-speech")
 MODEL_ID = os.environ.get("MESO_MODEL_ID", "fishaudio/s2-pro")
 CACHE_ROOT = Path("/runpod-volume/huggingface-cache/hub")
-LOCAL_MODEL_LINK = FISH_ROOT / "checkpoints" / "s2-pro"
+MODEL_PATH = FISH_ROOT / "checkpoints" / "s2-pro"
 API_URL = "http://127.0.0.1:8080"
 MAX_TEXT_CHARS = 1200
 MAX_REF_TEXT_CHARS = 4000
@@ -40,7 +40,14 @@ _api_lock = threading.Lock()
 _api_process: subprocess.Popen[str] | None = None
 
 
-def _resolve_cached_model() -> Path:
+def _resolve_model() -> tuple[Path, str]:
+    # Preferred production path: public S2-Pro weights baked into the immutable
+    # worker image. This avoids console-only cache configuration and runtime
+    # downloads. If a future endpoint supplies RunPod cached-model storage,
+    # retain a fail-closed cache fallback for a smaller image variant.
+    if (MODEL_PATH / "codec.pth").is_file():
+        return MODEL_PATH.resolve(), "baked"
+
     if "/" not in MODEL_ID:
         raise RuntimeError("invalid_model_id")
     org, name = MODEL_ID.split("/", 1)
@@ -58,8 +65,12 @@ def _resolve_cached_model() -> Path:
 
     for candidate in candidates:
         if (candidate / "codec.pth").is_file():
-            return candidate.resolve()
-    raise RuntimeError("cached_model_unavailable")
+            MODEL_PATH.parent.mkdir(parents=True, exist_ok=True)
+            if MODEL_PATH.exists() or MODEL_PATH.is_symlink():
+                raise RuntimeError("model_path_conflict")
+            MODEL_PATH.symlink_to(candidate.resolve(), target_is_directory=True)
+            return candidate.resolve(), "runpod-cache"
+    raise RuntimeError("model_unavailable")
 
 
 def _gpu_vram_mib() -> tuple[str, int]:
@@ -87,25 +98,17 @@ def _health_ok(timeout: float = 5.0) -> bool:
         return False
 
 
-def _ensure_fish_api() -> tuple[str, int, Path]:
+def _ensure_fish_api() -> tuple[str, int, Path, str]:
     global _api_process
     with _api_lock:
         gpu_name, vram_mib = _gpu_vram_mib()
         if vram_mib < MIN_VRAM_MIB:
             raise RuntimeError("insufficient_vram")
 
-        model_path = _resolve_cached_model()
-        LOCAL_MODEL_LINK.parent.mkdir(parents=True, exist_ok=True)
-        if LOCAL_MODEL_LINK.is_symlink() or LOCAL_MODEL_LINK.exists():
-            if LOCAL_MODEL_LINK.is_symlink() and LOCAL_MODEL_LINK.resolve() == model_path:
-                pass
-            else:
-                raise RuntimeError("model_link_conflict")
-        else:
-            LOCAL_MODEL_LINK.symlink_to(model_path, target_is_directory=True)
+        model_path, model_source = _resolve_model()
 
         if _api_process is not None and _api_process.poll() is None and _health_ok():
-            return gpu_name, vram_mib, model_path
+            return gpu_name, vram_mib, model_path, model_source
 
         if _api_process is not None and _api_process.poll() is None:
             _api_process.terminate()
@@ -117,7 +120,6 @@ def _ensure_fish_api() -> tuple[str, int, Path]:
         env = os.environ.copy()
         env["HF_HUB_OFFLINE"] = "1"
         env["TRANSFORMERS_OFFLINE"] = "1"
-        env["HF_HOME"] = "/runpod-volume/huggingface-cache"
         _api_process = subprocess.Popen(
             [
                 str(FISH_ROOT / ".venv" / "bin" / "python"),
@@ -144,7 +146,7 @@ def _ensure_fish_api() -> tuple[str, int, Path]:
             if _api_process.poll() is not None:
                 raise RuntimeError("fish_api_exited")
             if _health_ok():
-                return gpu_name, vram_mib, model_path
+                return gpu_name, vram_mib, model_path, model_source
             time.sleep(2)
         raise RuntimeError("fish_api_timeout")
 
@@ -181,7 +183,7 @@ def _decode_reference(data: dict[str, Any]) -> tuple[bytes, str]:
 def _synthesize(data: dict[str, Any]) -> dict[str, Any]:
     text = _clean_text(data.get("text"), MAX_TEXT_CHARS, "invalid_text")
     reference_audio, reference_text = _decode_reference(data)
-    gpu_name, vram_mib, _ = _ensure_fish_api()
+    gpu_name, vram_mib, _, model_source = _ensure_fish_api()
 
     payload = {
         "text": text,
@@ -223,6 +225,7 @@ def _synthesize(data: dict[str, Any]) -> dict[str, Any]:
             "audio_sha256": hashlib.sha256(wav).hexdigest(),
             "gpu": gpu_name,
             "vram_mib": vram_mib,
+            "model_source": model_source,
             "private_reference_persisted": False,
             "reference_memory_cache": False,
         }
@@ -238,12 +241,13 @@ def handler(job: dict[str, Any]) -> dict[str, Any]:
         return {"ok": False, "error": "invalid_input"}
     try:
         if data.get("mode") == "health":
-            gpu_name, vram_mib, model_path = _ensure_fish_api()
+            gpu_name, vram_mib, model_path, model_source = _ensure_fish_api()
             return {
                 "ok": True,
                 "engine": "fish-s2-pro",
                 "model_id": MODEL_ID,
-                "model_cached": str(model_path).startswith(str(CACHE_ROOT)),
+                "model_source": model_source,
+                "model_path_valid": (model_path / "codec.pth").is_file(),
                 "gpu": gpu_name,
                 "vram_mib": vram_mib,
                 "private_data_used": False,
