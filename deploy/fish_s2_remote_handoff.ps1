@@ -122,9 +122,8 @@ try {
   Write-Host 'MESO_FISH_REMOTE_INPUT_HASHES_VERIFIED=true'
 
   $install = if ($InstallSystemDeps) { '1' } else { '0' }
-  $run = @(
-    "chmod 700 $RemoteRoot/run_fish_s2_ephemeral.sh",
-    "MESO_FISH_LICENSE_ACCEPTED=1",
+  $environment = @(
+    'MESO_FISH_LICENSE_ACCEPTED=1',
     "PROJECT_SLUG=$ProjectSlug",
     "INSTALL_SYSTEM_DEPS=$install",
     "PRIVATE_ROOT=$RemoteRoot",
@@ -133,10 +132,10 @@ try {
     "TARGET_TEXT_FILE=$RemoteRoot/target.txt",
     "OUTPUT_DIR=$RemoteRoot/output",
     "WORKDIR=$SharedWorkRoot",
-    "PURGE_PRIVATE_INPUTS=1",
-    "KEEP_WORKDIR=1",
-    "bash $RemoteRoot/run_fish_s2_ephemeral.sh"
+    'PURGE_PRIVATE_INPUTS=1',
+    'KEEP_WORKDIR=1'
   ) -join ' '
+  $run = "chmod 700 $RemoteRoot/run_fish_s2_ephemeral.sh && env $environment bash $RemoteRoot/run_fish_s2_ephemeral.sh"
   Invoke-Native 'ssh' ($sshCommon + @($target, $run))
 
   $expectedNames = @("$ProjectSlug-fish-F1.wav","$ProjectSlug-fish-F2.wav","$ProjectSlug-fish-F3.wav",'report.json')
