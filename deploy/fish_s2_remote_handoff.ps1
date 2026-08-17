@@ -25,9 +25,6 @@ function Require-File([string]$Path, [string]$Label) {
 function Invoke-Native([string]$Exe, [string[]]$ArgumentList) {
   $previousPreference = $ErrorActionPreference
   try {
-    # Windows PowerShell converts native stderr into NativeCommandError records.
-    # Consequential success/failure is determined from the native exit code, not
-    # from whether the tool writes warnings or diagnostics to stderr.
     $ErrorActionPreference = 'Continue'
     & $Exe @ArgumentList
     $exitCode = $LASTEXITCODE
@@ -74,6 +71,17 @@ $repoRoot = Split-Path -Parent $PSScriptRoot
 $runner = Join-Path $repoRoot 'tools\run_fish_s2_ephemeral.sh'
 Require-File $runner 'Fish S2 runner'
 
+# The tooling checkout lives on Windows where Git may materialize shell scripts as
+# CRLF. Normalize the exact runner payload before SCP, then hash that normalized
+# payload so the integrity check covers the bytes that Bash will execute.
+$normalizedRunner = Join-Path ([System.IO.Path]::GetTempPath()) ("run_fish_s2_ephemeral-{0}.sh" -f [guid]::NewGuid().ToString('N'))
+$runnerText = [System.IO.File]::ReadAllText($runner)
+$runnerText = $runnerText.TrimStart([char]0xFEFF).Replace("`r`n", "`n").Replace("`r", "`n")
+$utf8NoBom = New-Object System.Text.UTF8Encoding($false)
+[System.IO.File]::WriteAllText($normalizedRunner, $runnerText, $utf8NoBom)
+if ([System.IO.File]::ReadAllBytes($normalizedRunner) -contains [byte]13) { throw 'Normalized Fish runner still contains CR bytes.' }
+Write-Host 'MESO_FISH_RUNNER_LF_NORMALIZED=true'
+
 New-Item -ItemType Directory -Force -Path $LocalOutputDir | Out-Null
 $knownHosts = Join-Path ([System.IO.Path]::GetTempPath()) ("meso-known-hosts-{0}.txt" -f [guid]::NewGuid().ToString('N'))
 $target = "$RemoteUser@$RemoteHost"
@@ -103,7 +111,7 @@ try {
     @{ Local=$ReferenceAudio; Remote='reference.wav' },
     @{ Local=$ReferenceTranscript; Remote='reference.txt' },
     @{ Local=$TargetText; Remote='target.txt' },
-    @{ Local=$runner; Remote='run_fish_s2_ephemeral.sh' }
+    @{ Local=$normalizedRunner; Remote='run_fish_s2_ephemeral.sh' }
   )
 
   foreach ($item in $files) {
@@ -168,6 +176,7 @@ try {
     }
   } catch {}
   Remove-Item -LiteralPath $knownHosts -Force -ErrorAction SilentlyContinue
+  Remove-Item -LiteralPath $normalizedRunner -Force -ErrorAction SilentlyContinue
 }
 
 Write-Host "Fish S2 outputs verified locally for ${ProjectSlug}: $LocalOutputDir"
