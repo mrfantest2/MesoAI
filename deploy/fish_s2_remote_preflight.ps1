@@ -74,8 +74,8 @@ try {
   )
 
   # Deliberately read-only: no directories, installs, model downloads, or private files.
-  # Pipe the probe over stdin to avoid Windows PowerShell/native ssh multiline argument
-  # quoting. Only this public diagnostic shell text is sent at this stage.
+  # Build LF-only UTF-8 bytes locally, Base64 them, and send only ASCII over stdin.
+  # This avoids Windows PowerShell BOM/CRLF and native argument-quoting behavior.
   $probe = @'
 set -e
 printf 'os='; uname -s
@@ -90,8 +90,19 @@ printf 'ffmpeg='; command -v ffmpeg >/dev/null 2>&1 && ffmpeg -version 2>&1 | he
 printf 'uv='; command -v uv >/dev/null 2>&1 && uv --version 2>&1 | head -n1 || echo missing
 '@
   $probe = $probe.Replace('__WORKSPACE__', $RemoteWorkspace)
-  $lines = @($probe | & ssh @sshCommon $target 'bash -s')
-  if ($LASTEXITCODE -ne 0) { throw "ssh zero-data probe failed with exit code $LASTEXITCODE" }
+  $probe = $probe.TrimStart([char]0xFEFF).Replace("`r`n", "`n").Replace("`r", "`n")
+  $utf8NoBom = New-Object System.Text.UTF8Encoding($false)
+  $encodedProbe = [Convert]::ToBase64String($utf8NoBom.GetBytes($probe))
+
+  $previousOutputEncoding = $OutputEncoding
+  try {
+    $OutputEncoding = New-Object System.Text.ASCIIEncoding
+    $lines = @($encodedProbe | & ssh @sshCommon $target 'base64 -d | bash')
+    $probeExit = $LASTEXITCODE
+  } finally {
+    $OutputEncoding = $previousOutputEncoding
+  }
+  if ($probeExit -ne 0) { throw "ssh zero-data probe failed with exit code $probeExit" }
 
   $facts = @{}
   foreach ($line in $lines) {
