@@ -76,14 +76,10 @@ try {
         throw new RuntimeException('provider_commit_failed');
     }
 
-    $secretPath = $privateRoot . '\\chat-cookie-secret.txt';
-    if (!is_file($secretPath) || trim((string)@file_get_contents($secretPath)) === '') {
-        if (file_put_contents($secretPath, bin2hex(random_bytes(32)), LOCK_EX) === false) throw new RuntimeException('cookie_secret_write_failed');
-    }
-
-    $invite = bin2hex(random_bytes(32));
-    $invitePath = $privateRoot . '\\chat-invite-token.txt';
-    if (file_put_contents($invitePath, $invite, LOCK_EX) === false) throw new RuntimeException('invite_write_failed');
+    // Public chat mode: retire any stale invite token. Private voice review uses
+    // its own MESO_REVIEW session/token and is intentionally unaffected.
+    @unlink($privateRoot . '\\chat-invite-token.txt');
+    @unlink($privateRoot . '\\chat-temp-invite.txt');
 
     @unlink($enablePath);
     echo json_encode([
@@ -92,7 +88,7 @@ try {
         'provider' => $provider,
         'model' => $model,
         'curl_available' => function_exists('curl_init'),
-        'invite_token' => $invite,
+        'chat_access' => 'public',
     ], JSON_UNESCAPED_SLASHES);
 } catch (Throwable $e) {
     @unlink($enablePath);
