@@ -16,12 +16,6 @@ function Require-File([string]$Path, [string]$Label) {
   if (!(Test-Path -LiteralPath $Path -PathType Leaf)) { throw "$Label not found: $Path" }
 }
 
-function Invoke-NativeCapture([string]$Exe, [string[]]$Args) {
-  $out = & $Exe @Args
-  if ($LASTEXITCODE -ne 0) { throw "$Exe failed with exit code $LASTEXITCODE" }
-  return @($out)
-}
-
 function Get-Fact([hashtable]$Facts, [string]$Name) {
   if ($Facts.ContainsKey($Name)) { return [string]$Facts[$Name] }
   return ''
@@ -80,6 +74,8 @@ try {
   )
 
   # Deliberately read-only: no directories, installs, model downloads, or private files.
+  # Pipe the probe over stdin to avoid Windows PowerShell/native ssh multiline argument
+  # quoting. Only this public diagnostic shell text is sent at this stage.
   $probe = @'
 set -e
 printf 'os='; uname -s
@@ -94,7 +90,8 @@ printf 'ffmpeg='; command -v ffmpeg >/dev/null 2>&1 && ffmpeg -version 2>&1 | he
 printf 'uv='; command -v uv >/dev/null 2>&1 && uv --version 2>&1 | head -n1 || echo missing
 '@
   $probe = $probe.Replace('__WORKSPACE__', $RemoteWorkspace)
-  $lines = Invoke-NativeCapture 'ssh' ($sshCommon + @($target, $probe))
+  $lines = @($probe | & ssh @sshCommon $target 'bash -s')
+  if ($LASTEXITCODE -ne 0) { throw "ssh zero-data probe failed with exit code $LASTEXITCODE" }
 
   $facts = @{}
   foreach ($line in $lines) {
