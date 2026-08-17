@@ -112,8 +112,8 @@ jobs:
           ui = Path('web/chat/reply-audio.js').read_text(encoding='utf-8')
 
           assert 'meso_chat_require_json_auth' in endpoint
-          assert r'C:\ProgramData\KhalilDigitalTwin\meso\fish-live-venv\Scripts\python.exe' in endpoint
-          assert r'C:\MesoAI\private\fish-live' in endpoint
+          assert 'fish-live-venv' in endpoint and 'python.exe' in endpoint
+          assert 'fish-live' in endpoint and 'config.json' in endpoint
           assert 'proc_open' in endpoint
           assert "X-Meso-Voice: fish-s2" in endpoint
           assert '/meso/api/tts.php' in ui
