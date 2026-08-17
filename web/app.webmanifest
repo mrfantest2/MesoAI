@@ -1,0 +1,46 @@
+{
+  "id": "/meso/chat/",
+  "name": "MesoAI",
+  "short_name": "MesoAI",
+  "description": "Private MesoAI chat with local speech input and Fish S2 voice playback when available.",
+  "start_url": "/meso/chat/?source=pwa",
+  "scope": "/meso/",
+  "display": "standalone",
+  "display_override": ["window-controls-overlay", "standalone", "minimal-ui"],
+  "orientation": "any",
+  "background_color": "#07080d",
+  "theme_color": "#090b12",
+  "categories": ["productivity", "utilities"],
+  "icons": [
+    {
+      "src": "/meso/icons/meso-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/meso/icons/meso-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/meso/icons/meso-maskable-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
+    }
+  ],
+  "shortcuts": [
+    {
+      "name": "Open private chat",
+      "short_name": "Chat",
+      "url": "/meso/chat/"
+    },
+    {
+      "name": "Voice Lab",
+      "short_name": "Voice Lab",
+      "url": "/meso/"
+    }
+  ]
+}
