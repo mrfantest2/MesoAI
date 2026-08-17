@@ -35,21 +35,12 @@ function meso_chat_cookie_value(int $expires): ?string {
     return $expires . '.' . $sig;
 }
 
-// Public chat mode. The normal MesoAI chat and chat API no longer require an
-// invite/cookie. Private voice-review and private-audio routes use their own
-// MESO_REVIEW session gate and remain isolated from this public-chat setting.
-function meso_chat_is_authorized(): bool {
-    return true;
-}
-
 function meso_request_is_https(): bool {
     $https = strtolower((string)($_SERVER['HTTPS'] ?? ''));
     $forwarded = strtolower((string)($_SERVER['HTTP_X_FORWARDED_PROTO'] ?? ''));
     return ($https !== '' && $https !== 'off') || $forwarded === 'https' || (string)($_SERVER['SERVER_PORT'] ?? '') === '443';
 }
 
-// Kept for compatibility with older invite links. Public chat does not depend
-// on this cookie anymore.
 function meso_chat_set_authorized_cookie(): bool {
     $expires = time() + MESO_CHAT_COOKIE_DAYS * 86400;
     $value = meso_chat_cookie_value($expires);
@@ -63,6 +54,35 @@ function meso_chat_set_authorized_cookie(): bool {
     ]);
 }
 
+function meso_chat_direct_page_request(): bool {
+    if (strtoupper((string)($_SERVER['REQUEST_METHOD'] ?? 'GET')) !== 'GET') return false;
+    $path = (string)(parse_url((string)($_SERVER['REQUEST_URI'] ?? ''), PHP_URL_PATH) ?? '');
+    return rtrim($path, '/') === '/meso/chat';
+}
+
+function meso_chat_is_authorized(): bool {
+    $raw = (string)($_COOKIE[MESO_CHAT_COOKIE] ?? '');
+    if ($raw !== '' && str_contains($raw, '.')) {
+        [$expRaw, $sig] = explode('.', $raw, 2);
+        if (ctype_digit($expRaw)) {
+            $exp = (int)$expRaw;
+            $now = time();
+            if ($exp >= $now && $exp <= $now + (MESO_CHAT_COOKIE_DAYS * 86400) + 3600) {
+                $expected = meso_chat_cookie_value($exp);
+                if ($expected !== null) {
+                    [, $expectedSig] = explode('.', $expected, 2);
+                    if (hash_equals($expectedSig, $sig)) return true;
+                }
+            }
+        }
+    }
+
+    // Direct browser access no longer requires a one-time invite. The page
+    // issues the existing signed cookie; JSON APIs remain cookie-protected.
+    if (meso_chat_direct_page_request()) return meso_chat_set_authorized_cookie();
+    return false;
+}
+
 function meso_chat_clear_cookie(): void {
     setcookie(MESO_CHAT_COOKIE, '', [
         'expires' => time() - 3600,
@@ -74,7 +94,10 @@ function meso_chat_clear_cookie(): void {
 }
 
 function meso_chat_require_json_auth(): void {
-    // Intentionally public. Request validation, provider isolation and the
-    // existing per-IP chat rate limit remain enforced by api/chat.php.
-    return;
+    if (meso_chat_is_authorized()) return;
+    http_response_code(403);
+    header('Content-Type: application/json; charset=utf-8');
+    header('Cache-Control: no-store');
+    echo json_encode(['ok' => false, 'error' => 'chat_auth_required']);
+    exit;
 }

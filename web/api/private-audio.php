@@ -13,7 +13,7 @@ session_start();
 
 header('Cache-Control: no-store, private');
 header('Pragma: no-cache');
-header('X-Robots-Tag: noindex, nofollow, noarchive');
+header('X-Robots-Tag: noindex, nofollow,noarchive');
 header('X-Content-Type-Options: nosniff');
 header('Referrer-Policy: no-referrer');
 
@@ -23,9 +23,9 @@ if (($_SESSION['meso_review_ok'] ?? false) !== true) {
 }
 
 $map = [
-    'C1' => 'meso-C1-chatterbox-v3-ar.wav',
-    'C2' => 'meso-C2-chatterbox-v3-ar.wav',
-    'C3' => 'meso-C3-chatterbox-v3-ar.wav',
+    'F1' => 'meso-fish-F1.wav',
+    'F2' => 'meso-fish-F2.wav',
+    'F3' => 'meso-fish-F3.wav',
 ];
 $key = strtoupper(trim((string)($_GET['sample'] ?? '')));
 if (!isset($map[$key])) {
@@ -33,7 +33,7 @@ if (!isset($map[$key])) {
     exit;
 }
 
-$root = 'C:\\MesoAI\\private\\evaluation\\generated\\chatterbox-v3-v1';
+$root = 'C:\\MesoAI\\private\\evaluation\\generated\\fish-s2-v1';
 $rootReal = realpath($root);
 $file = $root . '\\' . $map[$key];
 $fileReal = realpath($file);

@@ -1,0 +1,96 @@
+name: MesoAI Mobile App Preflight
+
+on:
+  push:
+    branches:
+      - preflight-write/meso-next
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  validate-pwa:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout branch
+        uses: actions/checkout@v4
+
+      - name: JavaScript syntax
+        run: |
+          node --check web/pwa/install.js
+          node --check web/sw.js
+
+      - name: Manifest and install UI invariants
+        run: |
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+
+          manifest = json.loads(Path('web/app.webmanifest').read_text(encoding='utf-8'))
+          page = Path('web/chat/index.php').read_text(encoding='utf-8')
+          installer = Path('web/pwa/install.js').read_text(encoding='utf-8')
+
+          assert manifest['id'] == '/meso/chat/'
+          assert manifest['start_url'].startswith('/meso/chat/')
+          assert manifest['scope'] == '/meso/'
+          assert manifest['display'] == 'standalone'
+          icons = {(i['src'], i['sizes'], i.get('purpose', 'any')) for i in manifest['icons']}
+          assert ('/meso/icons/meso-192.png', '192x192', 'any') in icons
+          assert ('/meso/icons/meso-512.png', '512x512', 'any') in icons
+          assert ('/meso/icons/meso-maskable-512.png', '512x512', 'maskable') in icons
+
+          assert 'rel="manifest" href="/meso/app.webmanifest"' in page
+          assert 'rel="apple-touch-icon" href="/meso/icons/apple-touch-icon.png"' in page
+          assert 'apple-mobile-web-app-capable' in page
+          assert 'mobile-web-app-capable' in page
+          assert 'data-install-app' in page
+          assert '/meso/pwa/install.js' in page
+          assert "manifest-src 'self'" in page
+          assert "worker-src 'self'" in page
+          assert 'beforeinstallprompt' in installer
+          assert "navigator.serviceWorker.register('/meso/sw.js'" in installer
+          assert 'Add to Home Screen' in installer
+          assert "display-mode: standalone" in installer
+          print('MESO_PWA_INSTALL_UI_OK=true')
+          PY
+
+      - name: Service worker privacy invariants
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          sw = Path('web/sw.js').read_text(encoding='utf-8')
+          offline = Path('web/offline.html').read_text(encoding='utf-8')
+
+          assert "request.method !== 'GET'" in sw
+          assert "url.pathname.startsWith('/meso/api/')" in sw
+          assert "url.pathname === '/meso/chat/'" in sw
+          assert 'if (url.search)' in sw
+          assert "request.mode === 'navigate'" in sw
+          assert "caches.match('/meso/offline.html')" in sw
+          static_block = sw.split('const STATIC_ASSETS = [', 1)[1].split('];', 1)[0]
+          assert '/meso/api/' not in static_block
+          assert "'/meso/chat/'" not in static_block
+          assert 'private chat pages' in offline.lower()
+          assert 'not stored in the offline cache' in offline.lower()
+          print('MESO_PWA_PRIVATE_CACHE_EXCLUSION_OK=true')
+          PY
+
+      - name: Windows icon/deploy source invariants
+        shell: pwsh
+        run: |
+          foreach ($path in @('deploy/generate_pwa_icons.ps1','deploy/deploy_to_xampp.ps1')) {
+            $text = Get-Content -LiteralPath $path -Raw
+            [void][scriptblock]::Create($text)
+            Write-Host "POWERSHELL_SYNTAX_OK=$path"
+          }
+          $generator = Get-Content -LiteralPath 'deploy/generate_pwa_icons.ps1' -Raw
+          foreach ($required in @('meso-192.png','meso-512.png','meso-maskable-512.png','apple-touch-icon.png','MESO_PWA_ICONS_READY=true')) {
+            if ($generator -notmatch [regex]::Escape($required)) { throw "Icon generator invariant missing: $required" }
+          }
+          $deploy = Get-Content -LiteralPath 'deploy/deploy_to_xampp.ps1' -Raw
+          foreach ($required in @('generate_pwa_icons.ps1','app.webmanifest','sw.js','pwa\install.js','MESO_PWA_DEPLOYED=true')) {
+            if ($deploy -notmatch [regex]::Escape($required)) { throw "PWA deployment invariant missing: $required" }
+          }
+          Write-Host 'MESO_PWA_WINDOWS_DEPLOY_SOURCE_OK=true'

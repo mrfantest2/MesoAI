@@ -1,0 +1,3 @@
+Secure GPU reservation trigger
+Requested: 2026-08-16
+Constraints: Secure Cloud; NVIDIA; VRAM >= 24 GB; hourly <= USD 0.50; no private Meso upload.

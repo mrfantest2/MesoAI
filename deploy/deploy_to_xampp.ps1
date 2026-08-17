@@ -1,13 +1,29 @@
 param(
   [string]$RepoRoot = (Split-Path -Parent (Split-Path -Parent $MyInvocation.MyCommand.Path)),
   [string]$Target = 'C:\xampp\htdocs\meso',
-  [string]$BackupRoot = 'C:\MesoAI\private\web-backups'
+  [string]$BackupRoot = 'C:\MesoAI\private\web-backups',
+  [string]$ChatSttRuntime = 'C:\ProgramData\KhalilDigitalTwin\meso\chat-stt',
+  [string]$ChatSttPython = 'C:\ProgramData\KhalilDigitalTwin\meso\fish-whisper-venv\Scripts\python.exe'
 )
 $ErrorActionPreference = 'Stop'
 $web = Join-Path $RepoRoot 'web'
+$chatSttHelper = Join-Path $RepoRoot 'tools\transcribe_chat_audio.py'
+$pwaIconGenerator = Join-Path $RepoRoot 'deploy\generate_pwa_icons.ps1'
 if (!(Test-Path -LiteralPath $web -PathType Container)) { throw "Web source not found: $web" }
+if (!(Test-Path -LiteralPath $chatSttHelper -PathType Leaf)) { throw "Meso chat STT helper not found: $chatSttHelper" }
+if (!(Test-Path -LiteralPath $pwaIconGenerator -PathType Leaf)) { throw "Meso PWA icon generator not found: $pwaIconGenerator" }
+if (!(Test-Path -LiteralPath $ChatSttPython -PathType Leaf)) { throw "Meso local faster-whisper runtime not found: $ChatSttPython" }
 New-Item -ItemType Directory -Force -Path $Target | Out-Null
 New-Item -ItemType Directory -Force -Path $BackupRoot | Out-Null
+New-Item -ItemType Directory -Force -Path $ChatSttRuntime | Out-Null
+New-Item -ItemType Directory -Force -Path (Join-Path $ChatSttRuntime 'tmp') | Out-Null
+
+# Stage only executable STT helper code outside Apache's document root. Private
+# audio remains below C:\MesoAI\private and is never copied into /meso.
+Copy-Item -LiteralPath $chatSttHelper -Destination (Join-Path $ChatSttRuntime 'transcribe_chat_audio.py') -Force
+& $ChatSttPython -m py_compile (Join-Path $ChatSttRuntime 'transcribe_chat_audio.py')
+if ($LASTEXITCODE -ne 0) { throw 'Meso chat STT helper failed Python compile validation.' }
+Write-Host 'MESO_CHAT_STT_RUNTIME_STAGED=true'
 
 # Older deploys stored _previous_* inside the public web root. Move those backups
 # out of Apache's document root before installing the new version.
@@ -29,6 +45,27 @@ if ($existing) {
 }
 
 Copy-Item -Path (Join-Path $web '*') -Destination $Target -Recurse -Force
+
+# PNG app icons are generated on the Windows deployment target from versioned
+# source code, avoiding binary icon blobs while still satisfying mobile PWA
+# installability requirements.
+& $pwaIconGenerator -TargetWebRoot $Target
+
+$pwaRequired = @(
+  'app.webmanifest',
+  'sw.js',
+  'offline.html',
+  'pwa\install.js',
+  'icons\meso-192.png',
+  'icons\meso-512.png',
+  'icons\meso-maskable-512.png',
+  'icons\apple-touch-icon.png'
+)
+foreach ($relative in $pwaRequired) {
+  $path = Join-Path $Target $relative
+  if (!(Test-Path -LiteralPath $path -PathType Leaf)) { throw "Required Meso PWA asset missing after deployment: $relative" }
+}
+Write-Host 'MESO_PWA_DEPLOYED=true'
 
 # Defense in depth: no legacy backup directory may remain under the public root.
 $publicBackups = Get-ChildItem -LiteralPath $Target -Force -Directory -ErrorAction SilentlyContinue | Where-Object { $_.Name -like '_previous_*' }

@@ -1,0 +1,77 @@
+name: KDT Public Chat STT Probe
+
+on:
+  push:
+    branches:
+      - preflight-write/meso-next
+    paths:
+      - .github/kdt-public-chat-stt-probe-trigger.txt
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - name: Generate non-private speech probe
+        shell: bash
+        run: |
+          set -euo pipefail
+          if ! command -v espeak-ng >/dev/null 2>&1; then
+            sudo apt-get update -qq
+            sudo apt-get install -y -qq espeak-ng
+          fi
+          espeak-ng -w probe.wav -s 125 -v en-us 'hello khalil transcription test'
+          test -s probe.wav
+          echo 'KDT_PUBLIC_STT_SYNTHETIC_AUDIO_READY=true'
+
+      - name: Verify live KDT microphone transcription end to end
+        shell: bash
+        run: |
+          set -euo pipefail
+          health_code="$(curl -sS --connect-timeout 10 --max-time 20 -o health.json -w '%{http_code}' https://agent.fantest.win/health || true)"
+          if [[ "$health_code" != "200" ]]; then
+            echo "KDT_PUBLIC_HEALTH_HTTP=$health_code"
+            exit 1
+          fi
+          python3 - <<'PY'
+          import json
+          data=json.load(open('health.json',encoding='utf-8'))
+          print('KDT_PUBLIC_HEALTH=true')
+          print('KDT_PUBLIC_BRAIN_PROVIDER=' + str(data.get('brain_provider') or 'unknown'))
+          PY
+
+          voice_code="$(curl -sS --connect-timeout 10 --max-time 90 -o voice.json -w '%{http_code}' \
+            -X POST \
+            -H 'Content-Type: audio/wav' \
+            -H 'X-Khalil-Mode: assistant' \
+            --data-binary @probe.wav \
+            https://agent.fantest.win/v1/chat/voice || true)"
+          echo "KDT_PUBLIC_CHAT_VOICE_HTTP=$voice_code"
+          python3 - "$voice_code" <<'PY'
+          import hashlib, json, re, sys
+          code=sys.argv[1]
+          try:
+              data=json.load(open('voice.json',encoding='utf-8'))
+          except Exception:
+              data={}
+          if code != '200' or data.get('ok') is not True:
+              err=str(data.get('error') or data.get('detail') or data.get('message') or 'unknown')
+              print('KDT_PUBLIC_CHAT_STT_ERROR=' + err[:240].replace('\n',' '))
+              raise SystemExit(1)
+          text=str(data.get('transcript') or '').strip()
+          if not text:
+              raise SystemExit('empty transcript')
+          normalized=re.sub(r'[^a-z ]+',' ',text.lower())
+          hits=sum(word in normalized.split() for word in ('hello','khalil','transcription','test'))
+          if hits < 2:
+              raise SystemExit('synthetic speech transcript did not match expected probe sufficiently')
+          print('KDT_PUBLIC_CHAT_STT_END_TO_END=true')
+          print('KDT_PUBLIC_CHAT_STT_LANGUAGE=' + str(data.get('language') or 'unknown'))
+          print('KDT_PUBLIC_CHAT_STT_MODEL=' + str(data.get('stt_model') or 'unknown'))
+          print('KDT_PUBLIC_CHAT_STT_TRANSCRIPT_CHARS=' + str(len(text)))
+          print('KDT_PUBLIC_CHAT_STT_TRANSCRIPT_SHA256=' + hashlib.sha256(text.encode('utf-8')).hexdigest())
+          print('KDT_PUBLIC_CHAT_STT_AUDIO_PROVIDER_UPLOAD=' + str(bool(data.get('audio_provider_upload'))).lower())
+          PY
