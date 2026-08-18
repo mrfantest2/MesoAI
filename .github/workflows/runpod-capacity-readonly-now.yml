@@ -1,0 +1,36 @@
+name: RunPod Capacity Readonly Now
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/runpod-capacity-readonly-now.yml
+
+permissions:
+  contents: write
+
+jobs:
+  capacity:
+    runs-on: [self-hosted, Windows, X64, khalil-voice]
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+      - name: Run protected local read-only capacity probe
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $probe = 'C:\ProgramData\KhalilDigitalTwin\artifacts\runpod_capacity_readonly.ps1'
+          if (!(Test-Path -LiteralPath $probe -PathType Leaf)) { throw 'Protected local capacity probe missing.' }
+          $result = & $probe
+          if ($LASTEXITCODE -ne 0) { throw 'Capacity probe failed.' }
+          [System.IO.File]::WriteAllText((Join-Path $env:GITHUB_WORKSPACE 'runpod-capacity-result-now.json'),([string]($result -join "`n") + "`n"),(New-Object System.Text.UTF8Encoding($false)))
+      - name: Commit sanitized result
+        shell: pwsh
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add -- runpod-capacity-result-now.json
+          git commit -m 'chore: record sanitized RunPod capacity result'
+          git push origin HEAD:main
