@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
-"""Local-only MesoAI -> existing khalil-xtts bridge.
+"""Local-only MesoAI -> reviewed Meso voice over the existing XTTS service.
 
-Reads a small JSON request from stdin, synthesizes with the existing local XTTS
-service, then transcodes the returned PCM WAV to a browser-safe MP3 before
-writing --output. No network endpoint is exposed and no voice references leave
-MASTER-PC.
+Reads a small JSON request from stdin, synthesizes with the reviewed Meso A
+reference on the existing local XTTS service, then transcodes the returned PCM
+WAV to a browser-safe MP3 before writing --output. No network endpoint is
+exposed and no voice references leave MASTER-PC.
 """
 from __future__ import annotations
 
@@ -19,6 +19,8 @@ from pathlib import Path
 
 XTTS_BASE = "http://127.0.0.1:8020"
 CONTAINER = "khalil-xtts"
+MESO_REFERENCE = "/data/voice/profiles/khalil/meso/refs/meso_ref_01.wav"
+XTTS_ALLOWED_ROOT = "/data/voice/profiles/khalil"
 FFMPEG_FIXED = Path(r"C:\ffmpeg\bin\ffmpeg.exe")
 MAX_TEXT = 1200
 MAX_WAV = 32 * 1024 * 1024
@@ -55,14 +57,17 @@ def read_request() -> dict:
     return request
 
 
-def canonical_references() -> list[str]:
+def meso_references() -> list[str]:
     docker = shutil.which("docker")
     if not docker:
         fail("docker_unavailable")
     code = (
-        "import json; "
-        "p=json.load(open('/data/voice/profiles/khalil/profile.json','r',encoding='utf-8')); "
-        "print(json.dumps([x.get('path') for x in (p.get('references') or []) if x.get('path')]))"
+        "import json; from pathlib import Path; "
+        f"p=Path({MESO_REFERENCE!r}).resolve(); "
+        f"root=Path({XTTS_ALLOWED_ROOT!r}).resolve(); "
+        "p.relative_to(root); "
+        "assert p.is_file() and p.stat().st_size > 0; "
+        "print(json.dumps([str(p)]))"
     )
     completed = subprocess.run(
         [docker, "exec", CONTAINER, "python", "-c", code],
@@ -72,19 +77,19 @@ def canonical_references() -> list[str]:
         check=False,
     )
     if completed.returncode != 0:
-        fail("xtts_profile_unavailable")
+        fail("meso_reference_unavailable")
     try:
         refs = json.loads(completed.stdout.strip())
     except json.JSONDecodeError:
-        fail("xtts_profile_invalid")
-    if not isinstance(refs, list) or not 1 <= len(refs) <= 5 or not all(isinstance(x, str) and x for x in refs):
-        fail("xtts_profile_invalid")
+        fail("meso_reference_invalid")
+    if refs != [MESO_REFERENCE]:
+        fail("meso_reference_invalid")
     return refs
 
 
 def synthesize_wav(text: str, language: str) -> bytes:
     payload = json.dumps(
-        {"text": text, "language": language, "speaker_wav": canonical_references()},
+        {"text": text, "language": language, "speaker_wav": meso_references()},
         ensure_ascii=False,
         separators=(",", ":"),
     ).encode("utf-8")
@@ -178,7 +183,7 @@ def main() -> int:
     audio = transcode_mp3(wav)
     args.output.parent.mkdir(parents=True, exist_ok=True)
     args.output.write_bytes(audio)
-    print(json.dumps({"ok": True, "engine": "xtts-v2", "format": "mp3", "bytes": len(audio)}, separators=(",", ":")))
+    print(json.dumps({"ok": True, "engine": "xtts-v2", "profile": "meso-a", "format": "mp3", "bytes": len(audio)}, separators=(",", ":")))
     return 0
 
 
