@@ -40,7 +40,7 @@ jobs:
             if(-not $js.Contains($needle)){throw "Missing Android MP3 playback marker: $needle"}
           }
           if($js -match "Accept': 'audio/wav"){throw 'Browser still requests WAV'}
-          foreach($needle in @('libmp3lame','C:\ffmpeg\bin\ffmpeg.exe','format\": \"mp3')){
+          foreach($needle in @('libmp3lame','C:\ffmpeg\bin\ffmpeg.exe','"format": "mp3"')){
             if(-not $helper.Contains($needle)){throw "Missing MP3 bridge marker: $needle"}
           }
           if($helper -notmatch 'synthesize_wav' -or $helper -notmatch 'transcode_mp3'){throw 'XTTS-to-MP3 bridge stages missing'}
