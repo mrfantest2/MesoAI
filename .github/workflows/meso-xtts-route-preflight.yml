@@ -35,7 +35,7 @@ jobs:
           $helper=Get-Content -LiteralPath './tools/meso_xtts_client.py' -Raw
           $deploy=Get-Content -LiteralPath './deploy/deploy_to_xampp.ps1' -Raw
 
-          foreach($needle in @('xtts-venv','meso_xtts_client.py','"engine":"xtts-v2"','"profile":"meso-a"','"format":"mp3"','audio_url','tts-audio.php')){
+          foreach($needle in @('xtts-venv','meso_xtts_client.py',"'engine' => 'xtts-v2'","'profile' => 'meso-a'","'format' => 'mp3'","'audio_url' => '/meso/api/tts-audio.php?id='")){
             if(-not $tts.Contains($needle)){throw "Missing direct Meso TTS marker: $needle"}
           }
           if($tts -match 'fish-live|fish-s2'){throw 'Fish live route remains in tts.php'}
