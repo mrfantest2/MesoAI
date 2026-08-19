@@ -67,7 +67,7 @@ if ($text === '' || mb_strlen($text) > 1200 || str_contains($text, "\0")) {
     exit;
 }
 if (!meso_tts_rate_limit()) {
-    meso_tts_json(429, 'tts_rate_limited', 'Local XTTS is busy or rate limited.');
+    meso_tts_json(429, 'tts_rate_limited', 'Meso voice is busy or rate limited.');
     exit;
 }
 
@@ -76,7 +76,7 @@ $privateRoot = meso_private_root() . '\\xtts-live';
 $python = 'C:\\ProgramData\\KhalilDigitalTwin\\meso\\xtts-venv\\Scripts\\python.exe';
 $helper = 'C:\\ProgramData\\KhalilDigitalTwin\\meso\\xtts-bridge\\meso_xtts_client.py';
 if (!is_file($python) || !is_file($helper)) {
-    meso_tts_json(503, 'xtts_unavailable', 'Local XTTS voice is offline.');
+    meso_tts_json(503, 'xtts_unavailable', 'Meso voice is offline.');
     exit;
 }
 
@@ -88,7 +88,7 @@ $lockPath = $privateRoot . '\\tts.lock';
 $lock = @fopen($lockPath, 'c+');
 if (!$lock || !flock($lock, LOCK_EX | LOCK_NB)) {
     if (is_resource($lock)) fclose($lock);
-    meso_tts_json(429, 'tts_busy', 'Local XTTS is generating another reply.');
+    meso_tts_json(429, 'tts_busy', 'Meso voice is generating another reply.');
     exit;
 }
 
@@ -124,6 +124,15 @@ try {
     $exitCode = proc_close($process);
 
     if ($exitCode !== 0 || !is_file($audioPath)) throw new RuntimeException('synthesis_failed');
+    $meta = json_decode(trim($stdout), true);
+    if (!is_array($meta)
+        || ($meta['ok'] ?? false) !== true
+        || ($meta['engine'] ?? '') !== 'xtts-v2'
+        || ($meta['profile'] ?? '') !== 'meso-a'
+        || ($meta['format'] ?? '') !== 'mp3') {
+        throw new RuntimeException('unexpected_voice_profile');
+    }
+
     $size = filesize($audioPath);
     if ($size === false || $size < 1024 || $size > 8388608) throw new RuntimeException('invalid_mp3_size');
     $fh = fopen($audioPath, 'rb');
@@ -136,9 +145,10 @@ try {
 
     header('Content-Type: audio/mpeg');
     header('Content-Length: ' . $size);
-    header('Content-Disposition: inline; filename="meso-xtts-reply.mp3"');
+    header('Content-Disposition: inline; filename="meso-voice-reply.mp3"');
     header('X-Meso-Voice: xtts-v2');
     header('X-Meso-Voice-Format: mp3');
+    header('X-Meso-Voice-Profile: meso-a');
     header('X-Meso-Voice-Location: master-pc-local');
     header('X-Meso-Voice-Language: ' . $language);
     readfile($audioPath);
@@ -146,7 +156,7 @@ try {
     if (!headers_sent()) {
         // Do not expose child stderr, local paths, reply text, profile filenames,
         // Docker/FFmpeg details, or internal XTTS response bodies to the browser.
-        meso_tts_json(503, 'xtts_unavailable', 'Local XTTS voice is temporarily unavailable.');
+        meso_tts_json(503, 'xtts_unavailable', 'Meso voice is temporarily unavailable.');
     }
 } finally {
     @unlink($audioPath);
