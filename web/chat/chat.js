@@ -6,26 +6,33 @@
   const messages=$('messages'), input=$('message'), send=$('send'), mic=$('mic'), status=$('status'), newChatButton=$('newChatBtn');
   if(!messages||!input||!send||!status)return;
   let recorder=null,stream=null,chunks=[],autoStopTimer=null,recording=false,transcribing=false;
+  let activePersona=String(document.body.dataset.persona||'off');
+  let activeGrounding=String(document.body.dataset.personaGrounding||'off');
 
-  const baseStatus=()=> 'Private · Persona meso-v1 · Memory off · Local STT';
+  const baseStatus=()=> `Private · Persona ${activePersona} · Memory off · Local STT`;
   function showEmpty(title,detail){messages.replaceChildren();const wrap=document.createElement('div');wrap.className='empty';const orb=document.createElement('div');orb.className='orb';orb.textContent='✦';const strong=document.createElement('strong');strong.textContent=title;const body=document.createElement('div');body.style.marginTop='7px';body.textContent=detail;wrap.append(orb,strong,body);messages.appendChild(wrap);}
   function addMessage(role,text,meta=''){const empty=messages.querySelector('.empty');if(empty)messages.replaceChildren();const card=document.createElement('div');card.className=`msg ${role}`;const label=document.createElement('div');label.className='role';label.textContent=meta?`${role} · ${meta}`:role;const body=document.createElement('div');body.textContent=String(text??'');card.append(label,body);messages.appendChild(card);messages.scrollTop=messages.scrollHeight;}
   function setBusy(value,label=''){send.disabled=value;input.disabled=value;if(mic&&!recording)mic.disabled=value;status.textContent=label||(value?'Thinking…':baseStatus());}
   function stopTracks(){if(stream)for(const track of stream.getTracks())track.stop();stream=null;}
   function resetRecorderUi(){recording=false;clearTimeout(autoStopTimer);autoStopTimer=null;if(mic){mic.classList.remove('recording');mic.setAttribute('aria-pressed','false');mic.textContent='🎙';}stopTracks();}
-  function newChat(){if(recording||transcribing)return;history.length=0;showEmpty('New conversation','Persona stays on. Conversation memory was cleared and is not stored server-side.');input.focus();}
+  function newChat(){if(recording||transcribing)return;history.length=0;showEmpty('New conversation',`${activePersona==='meso-v2'?'Historical evidence remains available. ':''}Conversation memory was cleared and is not stored server-side.`);input.focus();}
 
   async function sendText(){
     const text=input.value.trim(); if(!text||send.disabled)return;
-    const prior=history.slice(-12); input.value=''; addMessage('user',text); history.push({role:'user',content:text}); setBusy(true,'Thinking · Persona meso-v1…');
+    const prior=history.slice(-12); input.value=''; addMessage('user',text); history.push({role:'user',content:text}); setBusy(true,`Thinking · Persona ${activePersona}…`);
     try{
       const response=await fetch('/meso/api/chat.php',{method:'POST',credentials:'same-origin',cache:'no-store',headers:{'Content-Type':'application/json','Accept':'application/json'},body:JSON.stringify({message:text,history:prior})});
       let body={}; try{body=await response.json();}catch(_){body={ok:false,error:'invalid_json'};}
       if(response.status===403){location.reload();return;}
       if(!response.ok||!body.ok)throw new Error(body.message||body.error||`HTTP ${response.status}`);
-      const persona=body.persona==='meso-v1'?'persona · meso-v1':'persona · off';
-      const grounding=body.persona_grounding?` · ${body.persona_grounding}`:'';
-      const meta=`${body.provider||''}${body.model?` · ${body.model}`:''} · ${persona}${grounding}`;
+      activePersona=String(body.persona||'off');
+      activeGrounding=String(body.persona_grounding||'off');
+      document.body.dataset.persona=activePersona;
+      document.body.dataset.personaGrounding=activeGrounding;
+      const persona=`persona · ${activePersona}`;
+      const grounding=activeGrounding&&activeGrounding!=='off'?` · ${activeGrounding}`:'';
+      const evidence=Number(body.persona_evidence||0)>0?` · evidence ${Number(body.persona_evidence)}`:'';
+      const meta=`${body.provider||''}${body.model?` · ${body.model}`:''} · ${persona}${grounding}${evidence}`;
       addMessage('assistant',body.reply,meta); history.push({role:'assistant',content:String(body.reply??'')}); if(history.length>24)history.splice(0,history.length-24);
     }catch(error){addMessage('assistant',`Chat error: ${error.message}`,'system');}
     finally{setBusy(false);input.focus();}
