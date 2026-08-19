@@ -22,6 +22,7 @@ This document freezes the implementation contract before production changes begi
 - No RunPod dependency.
 - No KDT runtime dependency in the Meso chat request path.
 - No claim that an AI-generated reply is a historical statement Maissoun actually made.
+- No sending Persona evidence or private transcripts to an external LLM provider.
 
 ## Current source batch
 
@@ -54,16 +55,16 @@ The current source pack exists in the ChatGPT working container, while the targe
 
 ### Transfer protocol
 
-1. A temporary MASTER-PC-only workflow creates or reuses an RSA-3072 transfer keypair under `C:\ProgramData\KhalilDigitalTwin\meso\transfer-keys`.
+1. A temporary MASTER-PC-only workflow creates a fresh RSA-3072 transfer keypair for this transfer under `C:\ProgramData\KhalilDigitalTwin\meso\transfer-keys\<transfer-id>`.
 2. The private key never leaves MASTER-PC and is never printed.
-3. The workflow exposes only the public key and a transfer id.
+3. The workflow exposes only the public key and transfer id.
 4. The ChatGPT working container generates a random 256-bit AES key, encrypts `meso_source_batch_v1.zip` with AES-256-GCM, and wraps the AES key with RSA-OAEP-SHA256.
 5. Only the encrypted envelope and ciphertext chunks are written to a temporary GitHub branch.
 6. A MASTER-PC runner reconstructs the ciphertext, decrypts it locally, verifies the plaintext ZIP SHA-256 equals `f4f36d17edf5a2c358b4396acf0b906382174a5c117bb8c096d0e1d3f66d651a`, then extracts it to `C:\MesoAI\private\source-batches\instagram-20260819-b1`.
 7. The runner verifies every item hash from `manifest.json`.
-8. After verification the temporary branch ref is reset away from the transfer commits. Plaintext is never placed in repository history.
+8. After successful verification, the runner securely removes the one-time private transfer key and the temporary branch ref is reset away from the transfer commits. This means ciphertext that remains in unreachable Git objects cannot later be decrypted with the destroyed transfer key.
 
-Failure at any integrity, decryption, or path-containment check aborts before ingestion.
+Failure at any integrity, decryption, path-containment, or key-cleanup check aborts ingestion and is reported without printing plaintext material.
 
 ## Voice v2 architecture
 
@@ -134,6 +135,8 @@ No automatic metric is allowed to claim subjective identity similarity. The web 
 
 Persona v1 is retrieval-grounded. It does not train or fine-tune the LLM. It builds a compact private evidence corpus from the supplied Meso material and injects only relevant source-grounded style/context into each request.
 
+Persona v1 is **local-provider-only**. If `provider.json` selects `openai`, a request with Persona enabled fails closed with a safe `persona_requires_local_provider` response. Historical source excerpts and persona summaries are never sent to an external LLM provider in this phase.
+
 ### Private runtime layout
 
 `C:\MesoAI\private\persona-v1\`
@@ -167,7 +170,7 @@ A new tool, `tools/build_meso_persona_v1.py`, will:
 7. Compute conservative corpus-level style statistics and write `persona-summary.json`.
 8. Exclude low-confidence/no-speech segments from persona retrieval while keeping them in the private build report for audit.
 
-For this small initial corpus, SQLite FTS5 is preferred over adding an embedding model. The interface leaves room to add local embeddings later without changing the chat API contract.
+For this small initial corpus, SQLite FTS5 is preferred over adding an embedding model. Because Arabic lexical tokenization can occasionally return zero direct matches, retrieval also has a deterministic normalized-token overlap fallback that selects representative high-confidence segments without changing the chat API contract. A later local-embedding upgrade can replace the retrieval implementation behind the same helper interface.
 
 ### Persona context helper
 
@@ -199,6 +202,7 @@ When Persona is OFF:
 
 When Persona is ON:
 
+- `chat.php` first verifies the configured provider is local `ollama`; otherwise it fails closed without reading or emitting Persona evidence
 - `chat.php` invokes the staged local persona-context helper
 - the system instruction states that the assistant is generating an AI Meso-style response from private source evidence
 - it must not claim a generated sentence is a verbatim historical statement unless it is explicitly quoting a short retrieved source excerpt
@@ -244,6 +248,7 @@ The permanent KDT MesoAI deployment guard must verify:
 - `meso-v2` profile contract exists and every selected reference resolves below the approved XTTS voice root
 - `meso-a` fallback remains intact
 - Persona v1 private database and staged helper exist when Persona is enabled
+- Persona cannot execute while the configured chat provider is external
 - web root contains no `.wav`, `.m4a`, transcript JSON, persona database, or private source manifest
 - chat JS exposes Persona toggle and preserves the direct authenticated MP3 route
 - public assets use the new service-worker cache version
@@ -257,6 +262,7 @@ The permanent KDT MesoAI deployment guard must verify:
 - JavaScript contract assertions for Persona toggle and direct media route.
 - Reject any committed Meso raw audio/transcript/private DB extension or known private source filename.
 - Reject reintroduction of blob/ObjectURL audio playback.
+- Assert Persona-enabled requests fail closed when provider is not local Ollama.
 
 ### Private source-transfer preflight
 
@@ -266,6 +272,7 @@ The permanent KDT MesoAI deployment guard must verify:
 - plaintext ZIP SHA-256 matches the fixed pack hash
 - every extracted source hash matches manifest
 - plaintext never appears in runner logs
+- one-time private transfer key is removed after successful import
 
 ### Voice live gate
 
@@ -282,7 +289,8 @@ The permanent KDT MesoAI deployment guard must verify:
 - create SQLite/FTS index
 - execute deterministic retrieval tests against synthetic test queries without exposing raw transcript in CI logs
 - invoke chat with Persona OFF and confirm no persona helper call
-- invoke chat with Persona ON and confirm `persona.version=v1` and nonzero evidence retrieval when a matching source topic exists
+- invoke chat with Persona ON using local Ollama and confirm `persona.version=v1` and nonzero evidence retrieval when a matching source topic exists
+- invoke chat with Persona ON while configured for an external provider and confirm safe fail-closed behavior before persona evidence is loaded
 - confirm browser receives metadata only, not historical excerpts or local paths
 
 ### Production gate
@@ -310,7 +318,8 @@ The phase is accepted when:
 2. `meso-v2` contains 2-8 curated references derived only from approved voice-eligible sources and synthesizes successfully through the current XTTS/CUDA runtime.
 3. The existing `meso-a` path remains a working fallback.
 4. Persona v1 is built from locally transcribed source material and keeps historical evidence separate from style inference and disabled conversation memory.
-5. Chat can switch Persona OFF/ON without leaking source text or paths to the browser.
-6. Android/Brave playback remains direct authenticated MP3 with byte-range support.
-7. No plaintext Meso source audio/transcript/private database is committed to GitHub or copied into the web root.
-8. The project operator can privately A/B `Meso v2` versus `Meso A` before permanently selecting the new default.
+5. Persona evidence is used only with local Ollama and is never sent through the optional OpenAI provider.
+6. Chat can switch Persona OFF/ON without leaking source text or paths to the browser.
+7. Android/Brave playback remains direct authenticated MP3 with byte-range support.
+8. No plaintext Meso source audio/transcript/private database is committed to GitHub or copied into the web root.
+9. The project operator can privately A/B `Meso v2` versus `Meso A` before permanently selecting the new default.
