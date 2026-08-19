@@ -6,8 +6,8 @@
   const messages=$('messages'), input=$('message'), send=$('send'), mic=$('mic'), status=$('status'), newChatButton=$('newChatBtn');
   if(!messages||!input||!send||!status)return;
   let recorder=null,stream=null,chunks=[],autoStopTimer=null,recording=false,transcribing=false;
-  let activePersona=String(document.body.dataset.persona||'off');
-  let activeGrounding=String(document.body.dataset.personaGrounding||'off');
+  let activePersona='meso-v1';
+  let activeGrounding='style-only';
 
   const baseStatus=()=> `Private · Persona ${activePersona} · Memory off · Local STT`;
   function showEmpty(title,detail){messages.replaceChildren();const wrap=document.createElement('div');wrap.className='empty';const orb=document.createElement('div');orb.className='orb';orb.textContent='✦';const strong=document.createElement('strong');strong.textContent=title;const body=document.createElement('div');body.style.marginTop='7px';body.textContent=detail;wrap.append(orb,strong,body);messages.appendChild(wrap);}
@@ -15,6 +15,41 @@
   function setBusy(value,label=''){send.disabled=value;input.disabled=value;if(mic&&!recording)mic.disabled=value;status.textContent=label||(value?'Thinking…':baseStatus());}
   function stopTracks(){if(stream)for(const track of stream.getTracks())track.stop();stream=null;}
   function resetRecorderUi(){recording=false;clearTimeout(autoStopTimer);autoStopTimer=null;if(mic){mic.classList.remove('recording');mic.setAttribute('aria-pressed','false');mic.textContent='🎙';}stopTracks();}
+
+  function applyPersonaState(state){
+    activePersona=String(state?.version||'off');
+    activeGrounding=String(state?.grounding||'off');
+    for(const row of document.querySelectorAll('.side .status')){
+      const label=row.querySelector('span:first-child'); const pill=row.querySelector('.pill');
+      if(label&&pill&&String(label.textContent||'').trim()==='Persona'){
+        pill.textContent=activePersona==='meso-v2'?'MESO v2':activePersona==='meso-v1'?'MESO v1':'OFF';
+        pill.classList.toggle('good',activePersona!=='off');
+      }
+    }
+    const empty=messages.querySelector('.empty');
+    if(empty){
+      const strong=empty.querySelector('strong'); const detail=empty.querySelector('div:last-child');
+      if(strong)strong.textContent=activePersona==='meso-v2'?'Meso Persona v2 is ready':activePersona==='meso-v1'?'Meso Persona v1 is ready':'MesoAI chat is ready';
+      if(detail)detail.textContent=activePersona==='meso-v2'
+        ?`Private WhatsApp-grounded evidence retrieval is enabled from ${Number(state?.record_count||0).toLocaleString()} Maissoun-authored records. Memory is OFF.`
+        :'Style simulation is enabled from supplied source material. Memory is OFF and unverified Meso-specific facts are not invented.';
+    }
+    const composerNote=document.querySelector('.composer small');
+    if(composerNote)composerNote.textContent=activePersona==='meso-v2'
+      ?'Local STT + Meso voice · Persona MESO v2 · Memory OFF · Historical evidence retrieval'
+      :'Local STT + Meso voice · Persona MESO v1 · Memory OFF · Source-grounded style';
+    if(!send.disabled)status.textContent=baseStatus();
+  }
+
+  async function loadPersonaState(){
+    try{
+      const response=await fetch('/meso/api/persona-status.php',{credentials:'same-origin',cache:'no-store',headers:{'Accept':'application/json'}});
+      if(response.status===403){location.reload();return;}
+      const body=await response.json();
+      if(response.ok&&body.ok)applyPersonaState(body);
+    }catch(_){/* keep server-rendered v1-safe fallback */}
+  }
+
   function newChat(){if(recording||transcribing)return;history.length=0;showEmpty('New conversation',`${activePersona==='meso-v2'?'Historical evidence remains available. ':''}Conversation memory was cleared and is not stored server-side.`);input.focus();}
 
   async function sendText(){
@@ -27,8 +62,6 @@
       if(!response.ok||!body.ok)throw new Error(body.message||body.error||`HTTP ${response.status}`);
       activePersona=String(body.persona||'off');
       activeGrounding=String(body.persona_grounding||'off');
-      document.body.dataset.persona=activePersona;
-      document.body.dataset.personaGrounding=activeGrounding;
       const persona=`persona · ${activePersona}`;
       const grounding=activeGrounding&&activeGrounding!=='off'?` · ${activeGrounding}`:'';
       const evidence=Number(body.persona_evidence||0)>0?` · evidence ${Number(body.persona_evidence)}`:'';
@@ -44,7 +77,7 @@
   function stopRecording(){if(!recording||!recorder)return;try{if(recorder.state!=='inactive')recorder.stop();}catch(error){resetRecorderUi();setBusy(false);addMessage('assistant',`Could not stop microphone recording: ${error.message}`,'local STT');}}
 
   send.addEventListener('click',sendText); if(newChatButton)newChatButton.addEventListener('click',newChat); if(mic)mic.addEventListener('click',()=>recording?stopRecording():startRecording());
-  input.addEventListener('keydown',e=>{if(e.key==='Enter'&&(e.ctrlKey||e.metaKey)){e.preventDefault();sendText();}}); window.addEventListener('pagehide',stopTracks); status.textContent=baseStatus(); input.focus();
+  input.addEventListener('keydown',e=>{if(e.key==='Enter'&&(e.ctrlKey||e.metaKey)){e.preventDefault();sendText();}}); window.addEventListener('pagehide',stopTracks); status.textContent=baseStatus(); input.focus(); loadPersonaState();
 })();
 
 const replyAudioScript=document.createElement('script');replyAudioScript.src='/meso/chat/reply-audio.js';replyAudioScript.defer=true;document.head.appendChild(replyAudioScript);
