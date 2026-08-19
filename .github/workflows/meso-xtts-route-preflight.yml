@@ -1,0 +1,78 @@
+name: MesoAI Local XTTS Route Preflight
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - web/api/tts.php
+      - web/chat/reply-audio.js
+      - web/sw.js
+      - tools/meso_xtts_client.py
+      - deploy/deploy_to_xampp.ps1
+      - .github/workflows/meso-xtts-route-preflight.yml
+
+permissions:
+  contents: read
+
+jobs:
+  xtts-route:
+    runs-on: [self-hosted, Windows, X64]
+    timeout-minutes: 10
+    steps:
+      - name: Fence runner to MASTER-PC LocalSystem
+        shell: powershell
+        run: |
+          $ErrorActionPreference='Stop'
+          $identity=(whoami).Trim().ToLowerInvariant()
+          Write-Host "HOST=$env:COMPUTERNAME RUNNER=$env:RUNNER_NAME IDENTITY=$identity"
+          if($env:COMPUTERNAME -ne 'MASTER-PC'){throw 'MASTER-PC required'}
+          if($identity -ne 'nt authority\system'){throw 'LocalSystem required'}
+          $principal=[Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()
+          if(-not $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)){throw 'Administrator token required'}
+
+      - uses: actions/checkout@v6
+
+      - name: Static route validation
+        shell: powershell
+        run: |
+          $ErrorActionPreference='Stop'
+          $python='C:\ProgramData\KhalilDigitalTwin\meso\xtts-venv\Scripts\python.exe'
+          if(!(Test-Path -LiteralPath $python -PathType Leaf)){throw 'Local XTTS Python missing'}
+          & $python -m py_compile '.\tools\meso_xtts_client.py'
+          if($LASTEXITCODE -ne 0){throw 'XTTS helper compile failed'}
+          $php='C:\xampp\php\php.exe'
+          if(Test-Path -LiteralPath $php){
+            & $php -l '.\web\api\tts.php'
+            if($LASTEXITCODE -ne 0){throw 'tts.php lint failed'}
+          }
+          $tts=Get-Content -LiteralPath '.\web\api\tts.php' -Raw
+          $js=Get-Content -LiteralPath '.\web\chat\reply-audio.js' -Raw
+          foreach($needle in @('xtts-venv','meso_xtts_client.py','X-Meso-Voice: xtts-v2')){
+            if(-not $tts.Contains($needle)){throw "Missing XTTS route marker: $needle"}
+          }
+          if($tts -match 'fish-live|fish-s2'){throw 'Fish live route remains in tts.php'}
+          if($js -match 'Meso Fish|Fish S2|_mesoFish'){throw 'Fish UI route remains in reply-audio.js'}
+          if(-not $js.Contains("engine !== 'xtts-v2'")){throw 'Browser does not enforce XTTS response identity'}
+          Write-Host 'MESO_XTTS_STATIC_ROUTE=PASS'
+
+      - name: Live existing XTTS bridge smoke
+        shell: powershell
+        run: |
+          $ErrorActionPreference='Stop'
+          $state=(& docker inspect -f '{{.State.Status}}' khalil-xtts).Trim()
+          $health=(& docker inspect -f '{{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}' khalil-xtts).Trim()
+          if($state -ne 'running' -or $health -ne 'healthy'){throw "khalil-xtts unavailable: $state/$health"}
+          $python='C:\ProgramData\KhalilDigitalTwin\meso\xtts-venv\Scripts\python.exe'
+          $out=Join-Path $env:RUNNER_TEMP 'meso-route-xtts.wav'
+          try {
+            '{"text":"MesoAI XTTS route preflight.","language":"en"}' | & $python '.\tools\meso_xtts_client.py' --output $out
+            if($LASTEXITCODE -ne 0){throw 'XTTS bridge returned nonzero'}
+            $bytes=[IO.File]::ReadAllBytes($out)
+            if($bytes.Length -lt 44){throw 'XTTS bridge WAV too small'}
+            $head=[Text.Encoding]::ASCII.GetString($bytes,0,12)
+            if(-not($head.StartsWith('RIFF') -and $head.Substring(8,4) -eq 'WAVE')){throw 'XTTS bridge WAV invalid'}
+            $h=Invoke-RestMethod -Method Get -Uri 'http://127.0.0.1:8020/health' -TimeoutSec 20
+            Write-Host "MESO_XTTS_LIVE_ROUTE=PASS BYTES=$($bytes.Length) ENGINE=$($h.engine) DEVICE=$($h.device) PROFILE_READY=$($h.profile_ready)"
+          } finally {
+            Remove-Item -LiteralPath $out -Force -ErrorAction SilentlyContinue
+          }
