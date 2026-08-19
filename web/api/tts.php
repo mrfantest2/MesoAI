@@ -7,12 +7,16 @@ header('Pragma: no-cache');
 header('X-Content-Type-Options: nosniff');
 header('Referrer-Policy: no-referrer');
 
-function meso_tts_json(int $status, string $error, string $message = ''): void {
+function meso_tts_json(int $status, array $body): void {
     http_response_code($status);
     header('Content-Type: application/json; charset=utf-8');
+    echo json_encode($body, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
+}
+
+function meso_tts_error(int $status, string $error, string $message = ''): void {
     $body = ['ok' => false, 'error' => $error];
     if ($message !== '') $body['message'] = $message;
-    echo json_encode($body, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
+    meso_tts_json($status, $body);
 }
 
 function meso_tts_rate_limit(): bool {
@@ -42,10 +46,18 @@ function meso_tts_rate_limit(): bool {
     }
 }
 
+function meso_tts_cleanup_ready(string $readyRoot): void {
+    $cutoff = time() - 1800;
+    foreach (glob($readyRoot . '\\*.mp3') ?: [] as $file) {
+        $mtime = @filemtime($file);
+        if ($mtime !== false && $mtime < $cutoff) @unlink($file);
+    }
+}
+
 if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
     http_response_code(405);
     header('Allow: POST');
-    meso_tts_json(405, 'method_not_allowed');
+    meso_tts_error(405, 'method_not_allowed');
     exit;
 }
 
@@ -53,21 +65,21 @@ meso_chat_require_json_auth();
 
 $length = (int)($_SERVER['CONTENT_LENGTH'] ?? 0);
 if ($length <= 0 || $length > 8192) {
-    meso_tts_json(400, 'invalid_request_size');
+    meso_tts_error(400, 'invalid_request_size');
     exit;
 }
 $body = json_decode((string)file_get_contents('php://input'), true);
 if (!is_array($body)) {
-    meso_tts_json(400, 'invalid_json');
+    meso_tts_error(400, 'invalid_json');
     exit;
 }
 $text = trim((string)($body['text'] ?? ''));
 if ($text === '' || mb_strlen($text) > 1200 || str_contains($text, "\0")) {
-    meso_tts_json(400, 'invalid_text');
+    meso_tts_error(400, 'invalid_text');
     exit;
 }
 if (!meso_tts_rate_limit()) {
-    meso_tts_json(429, 'tts_rate_limited', 'Meso voice is busy or rate limited.');
+    meso_tts_error(429, 'tts_rate_limited', 'Meso voice is busy or rate limited.');
     exit;
 }
 
@@ -76,34 +88,39 @@ $privateRoot = meso_private_root() . '\\xtts-live';
 $python = 'C:\\ProgramData\\KhalilDigitalTwin\\meso\\xtts-venv\\Scripts\\python.exe';
 $helper = 'C:\\ProgramData\\KhalilDigitalTwin\\meso\\xtts-bridge\\meso_xtts_client.py';
 if (!is_file($python) || !is_file($helper)) {
-    meso_tts_json(503, 'xtts_unavailable', 'Meso voice is offline.');
+    meso_tts_error(503, 'xtts_unavailable', 'Meso voice is offline.');
     exit;
 }
 
 if (!is_dir($privateRoot) && !@mkdir($privateRoot, 0700, true) && !is_dir($privateRoot)) {
-    meso_tts_json(503, 'xtts_unavailable');
+    meso_tts_error(503, 'xtts_unavailable');
     exit;
 }
 $lockPath = $privateRoot . '\\tts.lock';
 $lock = @fopen($lockPath, 'c+');
 if (!$lock || !flock($lock, LOCK_EX | LOCK_NB)) {
     if (is_resource($lock)) fclose($lock);
-    meso_tts_json(429, 'tts_busy', 'Meso voice is generating another reply.');
+    meso_tts_error(429, 'tts_busy', 'Meso voice is generating another reply.');
     exit;
 }
 
 $requestRoot = $privateRoot . '\\requests';
-if (!is_dir($requestRoot) && !@mkdir($requestRoot, 0700, true) && !is_dir($requestRoot)) {
+$readyRoot = $requestRoot . '\\ready';
+if ((!is_dir($requestRoot) && !@mkdir($requestRoot, 0700, true) && !is_dir($requestRoot))
+    || (!is_dir($readyRoot) && !@mkdir($readyRoot, 0700, true) && !is_dir($readyRoot))) {
     flock($lock, LOCK_UN);
     fclose($lock);
-    meso_tts_json(503, 'xtts_unavailable');
+    meso_tts_error(503, 'xtts_unavailable');
     exit;
 }
-$audioPath = $requestRoot . '\\' . bin2hex(random_bytes(16)) . '.mp3';
+meso_tts_cleanup_ready($readyRoot);
+
+$tempPath = $requestRoot . '\\tmp-' . bin2hex(random_bytes(16)) . '.mp3';
+$publishedPath = null;
 
 try {
     @set_time_limit(305);
-    $command = [$python, $helper, '--output', $audioPath];
+    $command = [$python, $helper, '--output', $tempPath];
     $pipes = [];
     $process = @proc_open($command, [
         0 => ['pipe', 'r'],
@@ -123,7 +140,7 @@ try {
     fclose($pipes[2]);
     $exitCode = proc_close($process);
 
-    if ($exitCode !== 0 || !is_file($audioPath)) throw new RuntimeException('synthesis_failed');
+    if ($exitCode !== 0 || !is_file($tempPath)) throw new RuntimeException('synthesis_failed');
     $meta = json_decode(trim($stdout), true);
     if (!is_array($meta)
         || ($meta['ok'] ?? false) !== true
@@ -133,9 +150,9 @@ try {
         throw new RuntimeException('unexpected_voice_profile');
     }
 
-    $size = filesize($audioPath);
+    $size = filesize($tempPath);
     if ($size === false || $size < 1024 || $size > 8388608) throw new RuntimeException('invalid_mp3_size');
-    $fh = fopen($audioPath, 'rb');
+    $fh = fopen($tempPath, 'rb');
     if (!$fh) throw new RuntimeException('mp3_open_failed');
     $head = fread($fh, 3);
     fclose($fh);
@@ -143,23 +160,32 @@ try {
     $isFrame = strlen($head) >= 2 && ord($head[0]) === 0xFF && (ord($head[1]) & 0xE0) === 0xE0;
     if (!$isId3 && !$isFrame) throw new RuntimeException('invalid_mp3_header');
 
-    header('Content-Type: audio/mpeg');
-    header('Content-Length: ' . $size);
-    header('Content-Disposition: inline; filename="meso-voice-reply.mp3"');
+    $token = bin2hex(random_bytes(32));
+    $publishedPath = $readyRoot . '\\' . $token . '.mp3';
+    if (!@rename($tempPath, $publishedPath)) throw new RuntimeException('publish_failed');
+
     header('X-Meso-Voice: xtts-v2');
     header('X-Meso-Voice-Format: mp3');
     header('X-Meso-Voice-Profile: meso-a');
     header('X-Meso-Voice-Location: master-pc-local');
     header('X-Meso-Voice-Language: ' . $language);
-    readfile($audioPath);
+    meso_tts_json(200, [
+        'ok' => true,
+        'engine' => 'xtts-v2',
+        'profile' => 'meso-a',
+        'format' => 'mp3',
+        'audio_url' => '/meso/api/tts-audio.php?id=' . $token,
+        'expires_in' => 1800,
+    ]);
 } catch (Throwable $e) {
+    if ($publishedPath !== null) @unlink($publishedPath);
     if (!headers_sent()) {
         // Do not expose child stderr, local paths, reply text, profile filenames,
         // Docker/FFmpeg details, or internal XTTS response bodies to the browser.
-        meso_tts_json(503, 'xtts_unavailable', 'Meso voice is temporarily unavailable.');
+        meso_tts_error(503, 'xtts_unavailable', 'Meso voice is temporarily unavailable.');
     }
 } finally {
-    @unlink($audioPath);
+    @unlink($tempPath);
     flock($lock, LOCK_UN);
     fclose($lock);
 }

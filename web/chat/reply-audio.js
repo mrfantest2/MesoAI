@@ -11,7 +11,6 @@
   let activeAudio = null;
   let activeAbort = null;
   let operationId = 0;
-  const cachedUrls = new Set();
 
   function baseStatus() {
     return 'Private text + local STT + Meso voice · Local XTTS';
@@ -133,6 +132,15 @@
     return audio;
   }
 
+  function clearPrepared(button) {
+    if (!button) return;
+    if (button._mesoXttsAudio) {
+      try { button._mesoXttsAudio.pause(); } catch (_) {}
+    }
+    button._mesoXttsAudio = null;
+    button._mesoXttsUrl = '';
+  }
+
   function playPreparedXtts(button, note) {
     const url = button._mesoXttsUrl;
     if (!url) return false;
@@ -170,9 +178,12 @@
         activeAudio = null;
         activeButton = null;
         activeNote = null;
-        setButtonReady(button, note);
-        note.textContent = ' Meso voice MP3 decode error';
-        if (status) status.textContent = 'Meso voice MP3 could not be decoded by this browser';
+        clearPrepared(button);
+        button.textContent = '▶ Play';
+        button.disabled = false;
+        button.setAttribute('aria-pressed', 'false');
+        note.textContent = ' Meso voice media expired · tap Play to regenerate';
+        if (status) status.textContent = 'Meso voice media could not be loaded · tap Play to regenerate';
       }
     };
 
@@ -183,13 +194,28 @@
         activeAudio = null;
         activeButton = null;
         activeNote = null;
-        setButtonReady(button, note);
         const name = String(error?.name || 'PlaybackError');
+        if (name === 'NotSupportedError') clearPrepared(button);
+        button.textContent = '▶ Play';
+        button.disabled = false;
+        button.setAttribute('aria-pressed', 'false');
         note.textContent = ` Playback blocked · ${name}`;
-        if (status) status.textContent = `Playback blocked · ${name} · check tab/site sound permission`;
+        if (status) status.textContent = `Playback blocked · ${name}`;
       });
     }
     return true;
+  }
+
+  function normalizeAudioUrl(value) {
+    const raw = String(value || '').trim();
+    if (!raw) throw new Error('Missing Meso audio URL');
+    const parsed = new URL(raw, window.location.origin);
+    if (parsed.origin !== window.location.origin
+        || parsed.pathname !== '/meso/api/tts-audio.php'
+        || !/^[a-f0-9]{64}$/.test(parsed.searchParams.get('id') || '')) {
+      throw new Error('Invalid Meso audio URL');
+    }
+    return parsed.pathname + parsed.search;
   }
 
   async function prepareXtts(text, button, note, { background = false } = {}) {
@@ -221,7 +247,7 @@
         cache: 'no-store',
         headers: {
           'Content-Type': 'application/json',
-          'Accept': 'audio/mpeg,application/json'
+          'Accept': 'application/json'
         },
         body: JSON.stringify({ text: clean }),
         signal: controller.signal
@@ -231,26 +257,23 @@
         location.reload();
         return false;
       }
-      const contentType = String(response.headers.get('content-type') || '').toLowerCase();
-      const engine = String(response.headers.get('x-meso-voice') || '').toLowerCase();
-      const format = String(response.headers.get('x-meso-voice-format') || '').toLowerCase();
-      const profile = String(response.headers.get('x-meso-voice-profile') || '').toLowerCase();
-      if (!response.ok || !contentType.includes('audio/mpeg') || engine !== 'xtts-v2' || format !== 'mp3' || profile !== 'meso-a') {
+      const payload = await response.json();
+      const engine = String(payload?.engine || response.headers.get('x-meso-voice') || '').toLowerCase();
+      const format = String(payload?.format || response.headers.get('x-meso-voice-format') || '').toLowerCase();
+      const profile = String(payload?.profile || response.headers.get('x-meso-voice-profile') || '').toLowerCase();
+      const audioUrl = normalizeAudioUrl(payload?.audio_url);
+      if (!response.ok || payload?.ok !== true || engine !== 'xtts-v2' || format !== 'mp3' || profile !== 'meso-a' || !audioUrl.includes('tts-audio.php')) {
         throw new Error(`Meso voice HTTP ${response.status}`);
       }
-      const bytes = await response.arrayBuffer();
-      if (bytes.byteLength < 1024 || bytes.byteLength > 8388608) throw new Error('Invalid Meso voice MP3');
-      const blob = new Blob([bytes], { type: 'audio/mpeg' });
 
-      const url = URL.createObjectURL(blob);
-      cachedUrls.add(url);
-      button._mesoXttsUrl = url;
-      button._mesoXttsAudio = createPreparedAudio(url);
+      button._mesoXttsUrl = audioUrl;
+      button._mesoXttsAudio = createPreparedAudio(audioUrl);
       setButtonReady(button, note);
       if (!background && status) status.textContent = 'Meso voice ready · tap Play';
       return true;
     } catch (error) {
       if (error?.name === 'AbortError' && !timedOut) return false;
+      clearPrepared(button);
       button.textContent = '▶ Play';
       button.disabled = false;
       button.setAttribute('aria-pressed', 'false');
@@ -282,8 +305,7 @@
 
     const prepared = await prepareXtts(clean, button, note, { background: false });
     if (!prepared) browserFallback(clean, button, note, 'unavailable');
-    // Deliberately do not call audio.play() here. The network wait can consume
-    // browser user activation. The next explicit click plays the cached MP3.
+    // The next explicit click plays the already-prepared same-origin media URL.
   }
 
   function decorate(card, autoPrepare = false) {
@@ -347,9 +369,10 @@
       if (button._mesoXttsAbort) {
         try { button._mesoXttsAbort.abort(); } catch (_) {}
       }
+      if (button._mesoXttsAudio) {
+        try { button._mesoXttsAudio.pause(); } catch (_) {}
+      }
     }
-    for (const url of cachedUrls) URL.revokeObjectURL(url);
-    cachedUrls.clear();
   }
   window.addEventListener('pagehide', cleanup);
   window.addEventListener('beforeunload', cleanup);
