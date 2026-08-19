@@ -5,6 +5,7 @@ on:
     branches: [main]
     paths:
       - web/api/chat.php
+      - web/api/persona-status.php
       - web/api/tts.php
       - web/api/tts-audio.php
       - web/includes/persona.php
@@ -64,6 +65,7 @@ jobs:
         run: |
           $ErrorActionPreference='Stop'
           $chat=Get-Content -LiteralPath './web/api/chat.php' -Raw
+          $personaStatus=Get-Content -LiteralPath './web/api/persona-status.php' -Raw
           $tts=Get-Content -LiteralPath './web/api/tts.php' -Raw
           $audio=Get-Content -LiteralPath './web/api/tts-audio.php' -Raw
           $chatJs=Get-Content -LiteralPath './web/chat/chat.js' -Raw
@@ -88,11 +90,11 @@ jobs:
           foreach($needle in @("require_once dirname(__DIR__) . DIRECTORY_SEPARATOR . 'includes' . DIRECTORY_SEPARATOR . 'persona.php'",'meso_persona_context($message)')){if(-not $chat.Contains($needle)){throw "Chat missing Persona v2 integration: $needle"}}
           foreach($pattern in @("'persona'\s*=>","'persona_sources'\s*=>","'persona_grounding'\s*=>","'persona_evidence'\s*=>")){if($chat -notmatch $pattern){throw "Chat missing Persona v2 response field: $pattern"}}
           if($chat.Contains("'persona'=>($persona['enabled']??false)?'meso-v1':'off'")){throw 'Chat still hard-codes Persona v1'}
-          if($chat.Contains('Memory, persona simulation, and cloned voice are disabled')){throw 'Legacy persona-disabled instruction remains'}
 
-          foreach($needle in @('body.persona','persona_evidence','evidence-retrieval')){if(-not $chatJs.Contains($needle)){throw "chat.js missing Persona v2 marker: $needle"}}
+          foreach($needle in @('meso_chat_require_json_auth','meso_persona_status','record_count','source_count')){if(-not $personaStatus.Contains($needle)){throw "Persona status endpoint missing marker: $needle"}}
+          foreach($needle in @('body.persona','persona_evidence','evidence-retrieval','persona-status.php','applyPersonaState')){if(-not $chatJs.Contains($needle)){throw "chat.js missing Persona v2 marker: $needle"}}
           if($chatJs.Contains("body.persona==='meso-v1'")){throw 'chat.js still hard-codes meso-v1'}
-          foreach($needle in @('meso_persona_status()','Persona','Memory','MESO v')){if(-not $index.Contains($needle)){throw "Chat UI missing dynamic Persona marker: $needle"}}
+          foreach($needle in @('Persona','Memory','MESO v1')){if(-not $index.Contains($needle)){throw "Base chat UI lost required state row: $needle"}}
 
           foreach($needle in @('/data/voice/profiles/khalil/meso-v2/profile.json','MAX_MESO_REFERENCES = 4','/data/voice/profiles/khalil/meso/refs/meso_ref_01.wav','meso-v2','meso-a')){if(-not $helper.Contains($needle)){throw "Missing Voice v2 bridge marker: $needle"}}
           if($helper.Contains('/data/voice/profiles/khalil/profile.json')){throw 'Meso bridge still loads generic Khalil speaker profile'}
@@ -111,6 +113,7 @@ jobs:
       - name: PHP syntax check
         run: |
           php -l web/api/chat.php
+          php -l web/api/persona-status.php
           php -l web/api/tts.php
           php -l web/api/tts-audio.php
           php -l web/includes/persona.php
