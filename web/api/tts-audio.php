@@ -1,0 +1,101 @@
+<?php
+declare(strict_types=1);
+require_once dirname(__DIR__) . DIRECTORY_SEPARATOR . 'includes' . DIRECTORY_SEPARATOR . 'chat_auth.php';
+
+header('Cache-Control: private, no-store, max-age=0');
+header('Pragma: no-cache');
+header('X-Content-Type-Options: nosniff');
+header('Referrer-Policy: no-referrer');
+
+$method = strtoupper((string)($_SERVER['REQUEST_METHOD'] ?? 'GET'));
+if ($method !== 'GET' && $method !== 'HEAD') {
+    http_response_code(405);
+    header('Allow: GET, HEAD');
+    header('Content-Type: application/json; charset=utf-8');
+    echo json_encode(['ok' => false, 'error' => 'method_not_allowed']);
+    exit;
+}
+
+meso_chat_require_json_auth();
+
+$id = strtolower(trim((string)($_GET['id'] ?? '')));
+if (preg_match('/\A[a-f0-9]{64}\z/D', $id) !== 1) {
+    http_response_code(404);
+    exit;
+}
+
+$readyRoot = meso_private_root() . '\\xtts-live\\requests\\ready';
+$path = $readyRoot . '\\' . $id . '.mp3';
+if (!is_file($path) || !is_readable($path)) {
+    http_response_code(404);
+    exit;
+}
+
+$mtime = filemtime($path);
+if ($mtime === false || $mtime < time() - 1800) {
+    @unlink($path);
+    http_response_code(410);
+    exit;
+}
+
+$size = filesize($path);
+if ($size === false || $size < 1024 || $size > 8388608) {
+    http_response_code(404);
+    exit;
+}
+
+$start = 0;
+$end = $size - 1;
+$range = trim((string)($_SERVER['HTTP_RANGE'] ?? ''));
+
+if ($range !== '') {
+    if (preg_match('/\Abytes=(\d+)-(\d*)\z/D', $range, $m) !== 1) {
+        http_response_code(416);
+        header('Content-Range: bytes */' . $size);
+        exit;
+    }
+    $start = (int)$m[1];
+    if ($m[2] !== '') $end = (int)$m[2];
+    if ($start < 0 || $start >= $size || $end < $start) {
+        http_response_code(416);
+        header('Content-Range: bytes */' . $size);
+        exit;
+    }
+    if ($end >= $size) $end = $size - 1;
+    http_response_code(206);
+    header('Content-Range: bytes ' . $start . '-' . $end . '/' . $size);
+}
+
+$length = $end - $start + 1;
+header('Content-Type: audio/mpeg');
+header('Accept-Ranges: bytes');
+header('Content-Length: ' . $length);
+header('Content-Disposition: inline; filename="meso-voice-reply.mp3"');
+header('X-Meso-Voice: xtts-v2');
+header('X-Meso-Voice-Format: mp3');
+header('X-Meso-Voice-Profile: meso-a');
+header('X-Meso-Voice-Location: master-pc-local');
+
+if ($method === 'HEAD') exit;
+
+$fh = fopen($path, 'rb');
+if (!$fh) {
+    http_response_code(404);
+    exit;
+}
+
+try {
+    if ($start > 0 && fseek($fh, $start) !== 0) {
+        throw new RuntimeException('seek_failed');
+    }
+    $remaining = $length;
+    while ($remaining > 0 && !feof($fh)) {
+        $chunk = fread($fh, min(65536, $remaining));
+        if ($chunk === false) throw new RuntimeException('read_failed');
+        if ($chunk === '') break;
+        echo $chunk;
+        $remaining -= strlen($chunk);
+    }
+} finally {
+    fclose($fh);
+}
