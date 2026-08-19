@@ -14,16 +14,16 @@
   const cachedUrls = new Set();
 
   function baseStatus() {
-    return 'Private text + local STT + local XTTS';
+    return 'Private text + local STT + Meso voice · Local XTTS';
   }
 
-  function markLocalXttsUi() {
+  function markMesoVoiceUi() {
     if (status) status.textContent = baseStatus();
     for (const row of document.querySelectorAll('.side .status')) {
       const label = row.querySelector('span:first-child');
       const pill = row.querySelector('.pill');
       if (label && pill && String(label.textContent || '').trim() === 'Cloned voice') {
-        pill.textContent = 'LOCAL XTTS';
+        pill.textContent = 'MESO VOICE';
         pill.classList.remove('warn');
         pill.classList.add('good');
       }
@@ -31,12 +31,12 @@
     const emptyDetail = messages.querySelector('.empty > div:last-child');
     if (emptyDetail) {
       emptyDetail.textContent = String(emptyDetail.textContent || '')
-        .replace('Memory, persona and cloned voice remain off during this stage.', 'Memory and persona remain off. Reply audio uses local XTTS on MASTER-PC.');
+        .replace('Memory, persona and cloned voice remain off during this stage.', 'Memory and persona remain off. Reply audio uses the reviewed Meso voice locally on MASTER-PC.');
     }
     const composerNote = document.querySelector('.composer small');
     if (composerNote) {
       composerNote.textContent = String(composerNote.textContent || '')
-        .replace('Local STT only', 'Local STT + Local XTTS replies');
+        .replace('Local STT only', 'Local STT + Meso voice replies');
     }
   }
 
@@ -44,8 +44,8 @@
     button.textContent = '▶ Play';
     button.disabled = false;
     button.setAttribute('aria-pressed', 'false');
-    button.title = 'Play prepared local XTTS reply';
-    note.textContent = ' Local XTTS ready';
+    button.title = 'Play prepared Meso voice reply';
+    note.textContent = ' Meso voice ready';
   }
 
   function setIdle(button = activeButton, note = activeNote) {
@@ -55,7 +55,7 @@
         button.textContent = '▶ Play';
         button.disabled = false;
         button.setAttribute('aria-pressed', 'false');
-        button.title = 'Prepare local XTTS reply';
+        button.title = 'Prepare Meso voice reply';
       }
     }
     activeButton = null;
@@ -92,7 +92,7 @@
     if (!synth || typeof window.SpeechSynthesisUtterance !== 'function') {
       setIdle(button, note);
       note.textContent = ' Voice unavailable';
-      if (status) status.textContent = 'Local XTTS offline · browser speech unavailable';
+      if (status) status.textContent = 'Meso voice offline · browser speech unavailable';
       return;
     }
 
@@ -112,7 +112,7 @@
     button.setAttribute('aria-pressed', 'true');
     button.title = 'Stop reply audio';
     note.textContent = ' Browser fallback';
-    if (status) status.textContent = `Speaking · Browser fallback · ${utterance.lang}${reason ? ' · XTTS offline' : ''}`;
+    if (status) status.textContent = `Speaking · Browser fallback · ${utterance.lang}${reason ? ' · Meso voice offline' : ''}`;
 
     utterance.addEventListener('end', () => setIdle(button, note), { once: true });
     utterance.addEventListener('error', (event) => {
@@ -155,12 +155,12 @@
     button.textContent = '■ Stop';
     button.disabled = false;
     button.setAttribute('aria-pressed', 'true');
-    button.title = 'Stop local XTTS reply audio';
-    note.textContent = ' Local XTTS';
-    if (status) status.textContent = 'Starting · Local XTTS…';
+    button.title = 'Stop Meso voice reply audio';
+    note.textContent = ' Meso voice';
+    if (status) status.textContent = 'Starting · Meso voice…';
 
     audio.onplaying = () => {
-      if (activeAudio === audio && status) status.textContent = 'Speaking · Local XTTS';
+      if (activeAudio === audio && status) status.textContent = 'Speaking · Meso voice · Local XTTS';
     };
     audio.onended = () => {
       if (activeAudio === audio) setIdle(button, note);
@@ -171,8 +171,8 @@
         activeButton = null;
         activeNote = null;
         setButtonReady(button, note);
-        note.textContent = ' Local XTTS MP3 decode error';
-        if (status) status.textContent = 'Local XTTS MP3 could not be decoded by this browser';
+        note.textContent = ' Meso voice MP3 decode error';
+        if (status) status.textContent = 'Meso voice MP3 could not be decoded by this browser';
       }
     };
 
@@ -204,9 +204,9 @@
     button.textContent = '…';
     button.disabled = true;
     button.setAttribute('aria-pressed', 'false');
-    button.title = 'Preparing local XTTS reply audio';
-    note.textContent = ' Preparing · Local XTTS';
-    if (!background && status) status.textContent = 'Preparing · Local XTTS…';
+    button.title = 'Preparing Meso voice reply audio';
+    note.textContent = ' Preparing · Meso voice';
+    if (!background && status) status.textContent = 'Preparing · Meso voice…';
 
     let timedOut = false;
     const timer = setTimeout(() => {
@@ -234,11 +234,12 @@
       const contentType = String(response.headers.get('content-type') || '').toLowerCase();
       const engine = String(response.headers.get('x-meso-voice') || '').toLowerCase();
       const format = String(response.headers.get('x-meso-voice-format') || '').toLowerCase();
-      if (!response.ok || !contentType.includes('audio/mpeg') || engine !== 'xtts-v2' || format !== 'mp3') {
-        throw new Error(`XTTS HTTP ${response.status}`);
+      const profile = String(response.headers.get('x-meso-voice-profile') || '').toLowerCase();
+      if (!response.ok || !contentType.includes('audio/mpeg') || engine !== 'xtts-v2' || format !== 'mp3' || profile !== 'meso-a') {
+        throw new Error(`Meso voice HTTP ${response.status}`);
       }
       const bytes = await response.arrayBuffer();
-      if (bytes.byteLength < 1024 || bytes.byteLength > 8388608) throw new Error('Invalid XTTS MP3');
+      if (bytes.byteLength < 1024 || bytes.byteLength > 8388608) throw new Error('Invalid Meso voice MP3');
       const blob = new Blob([bytes], { type: 'audio/mpeg' });
 
       const url = URL.createObjectURL(blob);
@@ -246,16 +247,16 @@
       button._mesoXttsUrl = url;
       button._mesoXttsAudio = createPreparedAudio(url);
       setButtonReady(button, note);
-      if (!background && status) status.textContent = 'Local XTTS ready · tap Play';
+      if (!background && status) status.textContent = 'Meso voice ready · tap Play';
       return true;
     } catch (error) {
       if (error?.name === 'AbortError' && !timedOut) return false;
       button.textContent = '▶ Play';
       button.disabled = false;
       button.setAttribute('aria-pressed', 'false');
-      button.title = 'Retry local XTTS preparation';
-      note.textContent = timedOut ? ' Local XTTS preparation timed out' : ' Local XTTS unavailable · browser fallback';
-      if (!background && status) status.textContent = timedOut ? 'Local XTTS preparation timed out' : 'Local XTTS unavailable';
+      button.title = 'Retry Meso voice preparation';
+      note.textContent = timedOut ? ' Meso voice preparation timed out' : ' Meso voice unavailable · browser fallback';
+      if (!background && status) status.textContent = timedOut ? 'Meso voice preparation timed out' : 'Meso voice unavailable';
       return false;
     } finally {
       clearTimeout(timer);
@@ -301,16 +302,16 @@
     const button = document.createElement('button');
     button.type = 'button';
     button.textContent = '▶ Play';
-    button.setAttribute('aria-label', 'Play assistant reply using local XTTS');
+    button.setAttribute('aria-label', 'Play assistant reply using Meso voice');
     button.setAttribute('aria-pressed', 'false');
-    button.title = 'Prepare or play reply using local XTTS';
+    button.title = 'Prepare or play reply using Meso voice';
     Object.assign(button.style, {
       padding: '6px 10px', borderRadius: '9px', border: '1px solid #4c5263',
       background: '#171b27', color: '#f6f7fb', cursor: 'pointer', fontSize: '12px'
     });
 
     const note = document.createElement('span');
-    note.textContent = autoPrepare ? ' Preparing · Local XTTS' : ' Local XTTS';
+    note.textContent = autoPrepare ? ' Preparing · Meso voice' : ' Meso voice';
     Object.assign(note.style, { marginLeft: '7px', color: '#9299aa', fontSize: '10px' });
     button.addEventListener('click', () => handlePlayClick(text, button, note));
 
@@ -329,7 +330,7 @@
     }
   }
 
-  markLocalXttsUi();
+  markMesoVoiceUi();
   decorateAll();
   const observer = new MutationObserver((records) => {
     for (const record of records) {
