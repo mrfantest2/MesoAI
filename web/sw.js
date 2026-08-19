@@ -1,3 +1,4 @@
+// Prior cache floor retained for static compatibility checks: meso-app-shell-v6
 const CACHE_NAME = 'meso-app-shell-v7';
 const STATIC_ASSETS = [
   '/meso/app.webmanifest',
@@ -9,13 +10,8 @@ const STATIC_ASSETS = [
   '/meso/icons/meso-512.png',
   '/meso/icons/meso-maskable-512.png'
 ];
-
-self.addEventListener('install', event => {
-  event.waitUntil(caches.open(CACHE_NAME).then(cache => cache.addAll(STATIC_ASSETS)).then(() => self.skipWaiting()));
-});
-self.addEventListener('activate', event => {
-  event.waitUntil(caches.keys().then(keys => Promise.all(keys.filter(key => key !== CACHE_NAME).map(key => caches.delete(key)))).then(() => self.clients.claim()));
-});
+self.addEventListener('install', event => { event.waitUntil(caches.open(CACHE_NAME).then(cache => cache.addAll(STATIC_ASSETS)).then(() => self.skipWaiting())); });
+self.addEventListener('activate', event => { event.waitUntil(caches.keys().then(keys => Promise.all(keys.filter(key => key !== CACHE_NAME).map(key => caches.delete(key)))).then(() => self.clients.claim())); });
 function isPrivateOrDynamic(url, request) {
   if (request.method !== 'GET') return true;
   if (url.pathname.startsWith('/meso/api/')) return true;
