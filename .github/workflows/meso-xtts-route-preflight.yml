@@ -36,8 +36,12 @@ jobs:
           if($tts -match 'fish-live|fish-s2'){throw 'Fish live route remains in tts.php'}
           if($js -match 'Meso Fish|Fish S2|_mesoFish'){throw 'Fish UI route remains in reply-audio.js'}
           if(-not $js.Contains("engine !== 'xtts-v2'")){throw 'Browser does not enforce XTTS response identity'}
+          foreach($needle in @('playPreparedXtts','createPreparedAudio','Local XTTS ready','Playback blocked')){
+            if(-not $js.Contains($needle)){throw "Missing explicit playback marker: $needle"}
+          }
+          if($js -match 'playXttsUrl\(url, button, note\)'){throw 'Old post-fetch autoplay function remains'}
           $sw=Get-Content -LiteralPath './web/sw.js' -Raw
-          if(-not $sw.Contains("meso-app-shell-v2")){throw 'PWA cache version was not advanced'}
+          if(-not $sw.Contains("meso-app-shell-v3")){throw 'PWA cache version was not advanced to v3'}
           Write-Host 'MESO_XTTS_STATIC_ROUTE=PASS'
 
       - name: PHP syntax check

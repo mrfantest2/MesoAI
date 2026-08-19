@@ -40,13 +40,24 @@
     }
   }
 
+  function setButtonReady(button, note) {
+    button.textContent = '▶ Play';
+    button.disabled = false;
+    button.setAttribute('aria-pressed', 'false');
+    button.title = 'Play prepared local XTTS reply';
+    note.textContent = ' Local XTTS ready';
+  }
+
   function setIdle(button = activeButton, note = activeNote) {
     if (button) {
-      button.textContent = '▶ Play';
-      button.setAttribute('aria-pressed', 'false');
-      button.title = 'Play reply using local XTTS';
+      if (button._mesoXttsUrl) setButtonReady(button, note || { textContent: '' });
+      else {
+        button.textContent = '▶ Play';
+        button.disabled = false;
+        button.setAttribute('aria-pressed', 'false');
+        button.title = 'Prepare local XTTS reply';
+      }
     }
-    if (note && !button?._mesoXttsUrl) note.textContent = ' Local XTTS · browser fallback';
     activeButton = null;
     activeNote = null;
     activeAudio = null;
@@ -97,6 +108,7 @@
     activeButton = button;
     activeNote = note;
     button.textContent = '■ Stop';
+    button.disabled = false;
     button.setAttribute('aria-pressed', 'true');
     button.title = 'Stop reply audio';
     note.textContent = ' Browser fallback';
@@ -110,63 +122,91 @@
     synth.speak(utterance);
   }
 
-  function playXttsUrl(url, button, note) {
-    if (activeAudio) {
-      try { activeAudio.pause(); } catch (_) {}
+  function createPreparedAudio(url) {
+    const audio = new Audio();
+    audio.preload = 'auto';
+    audio.playsInline = true;
+    audio.muted = false;
+    audio.volume = 1;
+    audio.src = url;
+    try { audio.load(); } catch (_) {}
+    return audio;
+  }
+
+  function playPreparedXtts(button, note) {
+    const url = button._mesoXttsUrl;
+    if (!url) return false;
+
+    if (activeAudio && activeAudio !== button._mesoXttsAudio) {
+      try { activeAudio.pause(); activeAudio.currentTime = 0; } catch (_) {}
     }
     if (synth && (synth.speaking || synth.pending)) synth.cancel();
 
-    const audio = new Audio(url);
+    const audio = button._mesoXttsAudio || createPreparedAudio(url);
+    button._mesoXttsAudio = audio;
     activeAudio = audio;
     activeButton = button;
     activeNote = note;
+
+    audio.muted = false;
+    audio.volume = 1;
+    try { audio.currentTime = 0; } catch (_) {}
+
     button.textContent = '■ Stop';
+    button.disabled = false;
     button.setAttribute('aria-pressed', 'true');
     button.title = 'Stop local XTTS reply audio';
     note.textContent = ' Local XTTS';
-    if (status) status.textContent = 'Speaking · Local XTTS';
+    if (status) status.textContent = 'Starting · Local XTTS…';
 
-    audio.addEventListener('ended', () => setIdle(button, note), { once: true });
-    audio.addEventListener('error', () => {
-      setIdle(button, note);
-      note.textContent = ' Local XTTS audio error';
-    }, { once: true });
-    audio.play().catch((error) => {
-      activeAudio = null;
-      activeButton = null;
-      activeNote = null;
-      button.textContent = '▶ Play';
-      button.setAttribute('aria-pressed', 'false');
-      note.textContent = ' Local XTTS ready · tap Play';
-      if (status) status.textContent = `Local XTTS ready${error?.name === 'NotAllowedError' ? ' · tap Play' : ''}`;
-    });
+    audio.onplaying = () => {
+      if (activeAudio === audio && status) status.textContent = 'Speaking · Local XTTS';
+    };
+    audio.onended = () => {
+      if (activeAudio === audio) setIdle(button, note);
+    };
+    audio.onerror = () => {
+      if (activeAudio === audio) {
+        activeAudio = null;
+        activeButton = null;
+        activeNote = null;
+        setButtonReady(button, note);
+        note.textContent = ' Local XTTS audio decode error';
+        if (status) status.textContent = 'Local XTTS WAV could not be decoded by this browser';
+      }
+    };
+
+    const playPromise = audio.play();
+    if (playPromise && typeof playPromise.catch === 'function') {
+      playPromise.catch((error) => {
+        if (activeAudio !== audio) return;
+        activeAudio = null;
+        activeButton = null;
+        activeNote = null;
+        setButtonReady(button, note);
+        const name = String(error?.name || 'PlaybackError');
+        note.textContent = ` Playback blocked · ${name}`;
+        if (status) status.textContent = `Playback blocked · ${name} · check tab/site sound permission`;
+      });
+    }
+    return true;
   }
 
-  async function xttsFirst(text, button, note) {
+  async function prepareXtts(text, button, note, { background = false } = {}) {
     const clean = String(text || '').trim();
-    if (!clean) return;
+    if (!clean || button._mesoXttsUrl || button._mesoXttsPreparing) return Boolean(button._mesoXttsUrl);
 
-    if (activeButton === button) {
-      stopPlayback();
-      return;
-    }
-    stopPlayback();
-
-    if (button._mesoXttsUrl) {
-      playXttsUrl(button._mesoXttsUrl, button, note);
-      return;
-    }
-
-    const myOperation = ++operationId;
     const controller = new AbortController();
-    activeAbort = controller;
-    activeButton = button;
-    activeNote = note;
+    button._mesoXttsPreparing = true;
+    button._mesoXttsAbort = controller;
+    if (!background) activeAbort = controller;
+
     button.textContent = '…';
-    button.setAttribute('aria-pressed', 'true');
-    button.title = 'Generating local XTTS reply audio';
-    note.textContent = ' Generating · Local XTTS';
-    if (status) status.textContent = 'Generating · Local XTTS…';
+    button.disabled = true;
+    button.setAttribute('aria-pressed', 'false');
+    button.title = 'Preparing local XTTS reply audio';
+    note.textContent = ' Preparing · Local XTTS';
+    if (!background && status) status.textContent = 'Preparing · Local XTTS…';
 
     let timedOut = false;
     const timer = setTimeout(() => {
@@ -189,7 +229,7 @@
 
       if (response.status === 403) {
         location.reload();
-        return;
+        return false;
       }
       const contentType = String(response.headers.get('content-type') || '').toLowerCase();
       const engine = String(response.headers.get('x-meso-voice') || '').toLowerCase();
@@ -198,27 +238,52 @@
       }
       const blob = await response.blob();
       if (blob.size < 44 || blob.size > 33554432) throw new Error('Invalid XTTS WAV');
-      if (myOperation !== operationId) return;
 
       const url = URL.createObjectURL(blob);
       cachedUrls.add(url);
       button._mesoXttsUrl = url;
-      activeAbort = null;
-      playXttsUrl(url, button, note);
+      button._mesoXttsAudio = createPreparedAudio(url);
+      setButtonReady(button, note);
+      if (!background && status) status.textContent = 'Local XTTS ready · tap Play';
+      return true;
     } catch (error) {
-      if (myOperation !== operationId) return;
-      activeAbort = null;
-      if (error?.name === 'AbortError' && !timedOut) {
-        setIdle(button, note);
-        return;
-      }
-      browserFallback(clean, button, note, timedOut ? 'timeout' : 'unavailable');
+      if (error?.name === 'AbortError' && !timedOut) return false;
+      button.textContent = '▶ Play';
+      button.disabled = false;
+      button.setAttribute('aria-pressed', 'false');
+      button.title = 'Retry local XTTS preparation';
+      note.textContent = timedOut ? ' Local XTTS preparation timed out' : ' Local XTTS unavailable · browser fallback';
+      if (!background && status) status.textContent = timedOut ? 'Local XTTS preparation timed out' : 'Local XTTS unavailable';
+      return false;
     } finally {
       clearTimeout(timer);
+      button._mesoXttsPreparing = false;
+      button._mesoXttsAbort = null;
+      if (activeAbort === controller) activeAbort = null;
     }
   }
 
-  function decorate(card) {
+  async function handlePlayClick(text, button, note) {
+    const clean = String(text || '').trim();
+    if (!clean) return;
+
+    if (activeButton === button && activeAudio && !activeAudio.paused) {
+      stopPlayback();
+      return;
+    }
+
+    if (button._mesoXttsUrl) {
+      playPreparedXtts(button, note);
+      return;
+    }
+
+    const prepared = await prepareXtts(clean, button, note, { background: false });
+    if (!prepared) browserFallback(clean, button, note, 'unavailable');
+    // Deliberately do not call audio.play() here. The network wait can consume
+    // browser user activation. The next explicit click plays the cached WAV.
+  }
+
+  function decorate(card, autoPrepare = false) {
     if (!(card instanceof HTMLElement)) return;
     if (!card.classList.contains('assistant') || !card.classList.contains('msg')) return;
     if (card.dataset.replyAudioReady === '1') return;
@@ -236,25 +301,29 @@
     button.textContent = '▶ Play';
     button.setAttribute('aria-label', 'Play assistant reply using local XTTS');
     button.setAttribute('aria-pressed', 'false');
-    button.title = 'Play reply using local XTTS';
+    button.title = 'Prepare or play reply using local XTTS';
     Object.assign(button.style, {
       padding: '6px 10px', borderRadius: '9px', border: '1px solid #4c5263',
       background: '#171b27', color: '#f6f7fb', cursor: 'pointer', fontSize: '12px'
     });
 
     const note = document.createElement('span');
-    note.textContent = ' Local XTTS · browser fallback';
+    note.textContent = autoPrepare ? ' Preparing · Local XTTS' : ' Local XTTS';
     Object.assign(note.style, { marginLeft: '7px', color: '#9299aa', fontSize: '10px' });
-    button.addEventListener('click', () => xttsFirst(text, button, note));
+    button.addEventListener('click', () => handlePlayClick(text, button, note));
 
     tools.append(button, note);
     card.appendChild(tools);
+
+    if (autoPrepare) {
+      queueMicrotask(() => prepareXtts(text, button, note, { background: true }));
+    }
   }
 
-  function decorateAll(root = messages) {
-    if (root instanceof HTMLElement && root.matches('.msg.assistant')) decorate(root);
+  function decorateAll(root = messages, autoPrepare = false) {
+    if (root instanceof HTMLElement && root.matches('.msg.assistant')) decorate(root, autoPrepare);
     if (root.querySelectorAll) {
-      for (const card of root.querySelectorAll('.msg.assistant')) decorate(card);
+      for (const card of root.querySelectorAll('.msg.assistant')) decorate(card, autoPrepare);
     }
   }
 
@@ -263,7 +332,7 @@
   const observer = new MutationObserver((records) => {
     for (const record of records) {
       for (const node of record.addedNodes) {
-        if (node instanceof HTMLElement) decorateAll(node);
+        if (node instanceof HTMLElement) decorateAll(node, true);
       }
     }
   });
@@ -271,6 +340,11 @@
 
   function cleanup() {
     stopPlayback();
+    for (const button of messages.querySelectorAll('button')) {
+      if (button._mesoXttsAbort) {
+        try { button._mesoXttsAbort.abort(); } catch (_) {}
+      }
+    }
     for (const url of cachedUrls) URL.revokeObjectURL(url);
     cachedUrls.clear();
   }
