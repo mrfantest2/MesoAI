@@ -99,11 +99,11 @@ if (!is_dir($requestRoot) && !@mkdir($requestRoot, 0700, true) && !is_dir($reque
     meso_tts_json(503, 'xtts_unavailable');
     exit;
 }
-$wav = $requestRoot . '\\' . bin2hex(random_bytes(16)) . '.wav';
+$audioPath = $requestRoot . '\\' . bin2hex(random_bytes(16)) . '.mp3';
 
 try {
     @set_time_limit(305);
-    $command = [$python, $helper, '--output', $wav];
+    $command = [$python, $helper, '--output', $audioPath];
     $pipes = [];
     $process = @proc_open($command, [
         0 => ['pipe', 'r'],
@@ -123,32 +123,33 @@ try {
     fclose($pipes[2]);
     $exitCode = proc_close($process);
 
-    if ($exitCode !== 0 || !is_file($wav)) throw new RuntimeException('synthesis_failed');
-    $size = filesize($wav);
-    if ($size === false || $size < 44 || $size > 33554432) throw new RuntimeException('invalid_wav_size');
-    $fh = fopen($wav, 'rb');
-    if (!$fh) throw new RuntimeException('wav_open_failed');
-    $head = fread($fh, 12);
+    if ($exitCode !== 0 || !is_file($audioPath)) throw new RuntimeException('synthesis_failed');
+    $size = filesize($audioPath);
+    if ($size === false || $size < 1024 || $size > 8388608) throw new RuntimeException('invalid_mp3_size');
+    $fh = fopen($audioPath, 'rb');
+    if (!$fh) throw new RuntimeException('mp3_open_failed');
+    $head = fread($fh, 3);
     fclose($fh);
-    if (strlen($head) < 12 || substr($head, 0, 4) !== 'RIFF' || substr($head, 8, 4) !== 'WAVE') {
-        throw new RuntimeException('invalid_wav_header');
-    }
+    $isId3 = strlen($head) >= 3 && $head === 'ID3';
+    $isFrame = strlen($head) >= 2 && ord($head[0]) === 0xFF && (ord($head[1]) & 0xE0) === 0xE0;
+    if (!$isId3 && !$isFrame) throw new RuntimeException('invalid_mp3_header');
 
-    header('Content-Type: audio/wav');
+    header('Content-Type: audio/mpeg');
     header('Content-Length: ' . $size);
-    header('Content-Disposition: inline; filename="meso-xtts-reply.wav"');
+    header('Content-Disposition: inline; filename="meso-xtts-reply.mp3"');
     header('X-Meso-Voice: xtts-v2');
+    header('X-Meso-Voice-Format: mp3');
     header('X-Meso-Voice-Location: master-pc-local');
     header('X-Meso-Voice-Language: ' . $language);
-    readfile($wav);
+    readfile($audioPath);
 } catch (Throwable $e) {
     if (!headers_sent()) {
         // Do not expose child stderr, local paths, reply text, profile filenames,
-        // Docker details, or internal XTTS response bodies to the browser.
+        // Docker/FFmpeg details, or internal XTTS response bodies to the browser.
         meso_tts_json(503, 'xtts_unavailable', 'Local XTTS voice is temporarily unavailable.');
     }
 } finally {
-    @unlink($wav);
+    @unlink($audioPath);
     flock($lock, LOCK_UN);
     fclose($lock);
 }

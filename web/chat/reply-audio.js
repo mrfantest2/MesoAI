@@ -171,8 +171,8 @@
         activeButton = null;
         activeNote = null;
         setButtonReady(button, note);
-        note.textContent = ' Local XTTS audio decode error';
-        if (status) status.textContent = 'Local XTTS WAV could not be decoded by this browser';
+        note.textContent = ' Local XTTS MP3 decode error';
+        if (status) status.textContent = 'Local XTTS MP3 could not be decoded by this browser';
       }
     };
 
@@ -221,7 +221,7 @@
         cache: 'no-store',
         headers: {
           'Content-Type': 'application/json',
-          'Accept': 'audio/wav,application/json'
+          'Accept': 'audio/mpeg,application/json'
         },
         body: JSON.stringify({ text: clean }),
         signal: controller.signal
@@ -233,11 +233,13 @@
       }
       const contentType = String(response.headers.get('content-type') || '').toLowerCase();
       const engine = String(response.headers.get('x-meso-voice') || '').toLowerCase();
-      if (!response.ok || !contentType.includes('audio/wav') || engine !== 'xtts-v2') {
+      const format = String(response.headers.get('x-meso-voice-format') || '').toLowerCase();
+      if (!response.ok || !contentType.includes('audio/mpeg') || engine !== 'xtts-v2' || format !== 'mp3') {
         throw new Error(`XTTS HTTP ${response.status}`);
       }
-      const blob = await response.blob();
-      if (blob.size < 44 || blob.size > 33554432) throw new Error('Invalid XTTS WAV');
+      const bytes = await response.arrayBuffer();
+      if (bytes.byteLength < 1024 || bytes.byteLength > 8388608) throw new Error('Invalid XTTS MP3');
+      const blob = new Blob([bytes], { type: 'audio/mpeg' });
 
       const url = URL.createObjectURL(blob);
       cachedUrls.add(url);
@@ -280,7 +282,7 @@
     const prepared = await prepareXtts(clean, button, note, { background: false });
     if (!prepared) browserFallback(clean, button, note, 'unavailable');
     // Deliberately do not call audio.play() here. The network wait can consume
-    // browser user activation. The next explicit click plays the cached WAV.
+    // browser user activation. The next explicit click plays the cached MP3.
   }
 
   function decorate(card, autoPrepare = false) {
