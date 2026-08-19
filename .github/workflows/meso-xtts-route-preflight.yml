@@ -58,10 +58,12 @@ jobs:
           if($helper.Contains('/data/voice/profiles/khalil/profile.json')){throw 'Meso bridge still loads generic Khalil speaker profile'}
 
           foreach($pattern in @("'engine'\s*=>\s*'xtts-v2'","'format'\s*=>\s*'mp3'","'audio_url'\s*=>\s*'/meso/api/tts-audio\.php\?id='")){if($tts -notmatch $pattern){throw "Missing direct Meso TTS marker: $pattern"}}
-          foreach($needle in @("$publishedMetaPath",'profile'=>$voiceProfile)){if(-not $tts.Contains($needle)){throw "TTS missing dynamic media metadata marker: $needle"}}
+          if(-not $tts.Contains('$publishedMetaPath')){throw 'TTS missing published media metadata sidecar'}
+          if($tts -notmatch "'profile'\s*=>\s*\`$voiceProfile"){throw 'TTS metadata sidecar does not record dynamic voice profile'}
           if($tts -match 'fish-live|fish-s2'){throw 'Fish live route remains in tts.php'}
 
-          foreach($needle in @('Content-Type: audio/mpeg','Accept-Ranges: bytes','Content-Range: bytes','meso_chat_require_json_auth','preg_match','$metaPath','$voiceProfile','X-Meso-Voice-Profile: '.$voiceProfile)){if(-not $audio.Contains($needle)){throw "Missing dynamic direct media marker: $needle"}}
+          foreach($needle in @('Content-Type: audio/mpeg','Accept-Ranges: bytes','Content-Range: bytes','meso_chat_require_json_auth','preg_match','$metaPath','$voiceProfile')){if(-not $audio.Contains($needle)){throw "Missing dynamic direct media marker: $needle"}}
+          if(-not $audio.Contains("X-Meso-Voice-Profile: '.$voiceProfile")){throw 'Media endpoint does not emit dynamic profile header'}
           if($audio.Contains("X-Meso-Voice-Profile: meso-a")){throw 'Media endpoint still hard-codes meso-a'}
           if($replyJs.Contains('URL.createObjectURL') -or $replyJs.Contains('new Blob(')){throw 'Android playback still depends on a blob URL'}
           foreach($needle in @("engine!=='xtts-v2'","!['meso-a', 'meso-v2'].includes(profile)",'audio_url','tts-audio.php','playPreparedXtts','Meso voice ready','MESO VOICE')){if(-not $replyJs.Contains($needle)){throw "Missing Voice v2 browser marker: $needle"}}
