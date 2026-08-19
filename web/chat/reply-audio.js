@@ -14,16 +14,39 @@
   const cachedUrls = new Set();
 
   function baseStatus() {
-    return 'Private text + local STT + Fish voice preflight';
+    return 'Private text + local STT + local XTTS';
+  }
+
+  function markLocalXttsUi() {
+    if (status) status.textContent = baseStatus();
+    for (const row of document.querySelectorAll('.side .status')) {
+      const label = row.querySelector('span:first-child');
+      const pill = row.querySelector('.pill');
+      if (label && pill && String(label.textContent || '').trim() === 'Cloned voice') {
+        pill.textContent = 'LOCAL XTTS';
+        pill.classList.remove('warn');
+        pill.classList.add('good');
+      }
+    }
+    const emptyDetail = messages.querySelector('.empty > div:last-child');
+    if (emptyDetail) {
+      emptyDetail.textContent = String(emptyDetail.textContent || '')
+        .replace('Memory, persona and cloned voice remain off during this stage.', 'Memory and persona remain off. Reply audio uses local XTTS on MASTER-PC.');
+    }
+    const composerNote = document.querySelector('.composer small');
+    if (composerNote) {
+      composerNote.textContent = String(composerNote.textContent || '')
+        .replace('Local STT only', 'Local STT + Local XTTS replies');
+    }
   }
 
   function setIdle(button = activeButton, note = activeNote) {
     if (button) {
       button.textContent = '▶ Play';
       button.setAttribute('aria-pressed', 'false');
-      button.title = 'Play reply using Meso Fish S2';
+      button.title = 'Play reply using local XTTS';
     }
-    if (note && !button?._mesoFishUrl) note.textContent = ' Meso Fish S2 · browser fallback';
+    if (note && !button?._mesoXttsUrl) note.textContent = ' Local XTTS · browser fallback';
     activeButton = null;
     activeNote = null;
     activeAudio = null;
@@ -58,7 +81,7 @@
     if (!synth || typeof window.SpeechSynthesisUtterance !== 'function') {
       setIdle(button, note);
       note.textContent = ' Voice unavailable';
-      if (status) status.textContent = 'Meso Fish S2 offline · browser speech unavailable';
+      if (status) status.textContent = 'Local XTTS offline · browser speech unavailable';
       return;
     }
 
@@ -77,7 +100,7 @@
     button.setAttribute('aria-pressed', 'true');
     button.title = 'Stop reply audio';
     note.textContent = ' Browser fallback';
-    if (status) status.textContent = `Speaking · Browser fallback · ${utterance.lang}${reason ? ' · Fish offline' : ''}`;
+    if (status) status.textContent = `Speaking · Browser fallback · ${utterance.lang}${reason ? ' · XTTS offline' : ''}`;
 
     utterance.addEventListener('end', () => setIdle(button, note), { once: true });
     utterance.addEventListener('error', (event) => {
@@ -87,7 +110,7 @@
     synth.speak(utterance);
   }
 
-  function playFishUrl(url, button, note) {
+  function playXttsUrl(url, button, note) {
     if (activeAudio) {
       try { activeAudio.pause(); } catch (_) {}
     }
@@ -99,14 +122,14 @@
     activeNote = note;
     button.textContent = '■ Stop';
     button.setAttribute('aria-pressed', 'true');
-    button.title = 'Stop Meso Fish S2 reply audio';
-    note.textContent = ' Meso Fish S2';
-    if (status) status.textContent = 'Speaking · Meso Fish S2';
+    button.title = 'Stop local XTTS reply audio';
+    note.textContent = ' Local XTTS';
+    if (status) status.textContent = 'Speaking · Local XTTS';
 
     audio.addEventListener('ended', () => setIdle(button, note), { once: true });
     audio.addEventListener('error', () => {
       setIdle(button, note);
-      note.textContent = ' Meso Fish S2 audio error';
+      note.textContent = ' Local XTTS audio error';
     }, { once: true });
     audio.play().catch((error) => {
       activeAudio = null;
@@ -114,12 +137,12 @@
       activeNote = null;
       button.textContent = '▶ Play';
       button.setAttribute('aria-pressed', 'false');
-      note.textContent = ' Meso Fish S2 ready · tap Play';
-      if (status) status.textContent = `Meso Fish S2 ready${error?.name === 'NotAllowedError' ? ' · tap Play' : ''}`;
+      note.textContent = ' Local XTTS ready · tap Play';
+      if (status) status.textContent = `Local XTTS ready${error?.name === 'NotAllowedError' ? ' · tap Play' : ''}`;
     });
   }
 
-  async function fishFirst(text, button, note) {
+  async function xttsFirst(text, button, note) {
     const clean = String(text || '').trim();
     if (!clean) return;
 
@@ -129,8 +152,8 @@
     }
     stopPlayback();
 
-    if (button._mesoFishUrl) {
-      playFishUrl(button._mesoFishUrl, button, note);
+    if (button._mesoXttsUrl) {
+      playXttsUrl(button._mesoXttsUrl, button, note);
       return;
     }
 
@@ -141,15 +164,15 @@
     activeNote = note;
     button.textContent = '…';
     button.setAttribute('aria-pressed', 'true');
-    button.title = 'Generating Meso Fish S2 reply audio';
-    note.textContent = ' Generating · Meso Fish S2';
-    if (status) status.textContent = 'Generating · Meso Fish S2…';
+    button.title = 'Generating local XTTS reply audio';
+    note.textContent = ' Generating · Local XTTS';
+    if (status) status.textContent = 'Generating · Local XTTS…';
 
     let timedOut = false;
     const timer = setTimeout(() => {
       timedOut = true;
       controller.abort();
-    }, 100000);
+    }, 300000);
 
     try {
       const response = await fetch('/meso/api/tts.php', {
@@ -168,18 +191,20 @@
         location.reload();
         return;
       }
-      if (!response.ok || !String(response.headers.get('content-type') || '').toLowerCase().includes('audio/wav')) {
-        throw new Error(`Fish HTTP ${response.status}`);
+      const contentType = String(response.headers.get('content-type') || '').toLowerCase();
+      const engine = String(response.headers.get('x-meso-voice') || '').toLowerCase();
+      if (!response.ok || !contentType.includes('audio/wav') || engine !== 'xtts-v2') {
+        throw new Error(`XTTS HTTP ${response.status}`);
       }
       const blob = await response.blob();
-      if (blob.size < 44 || blob.size > 33554432) throw new Error('Invalid Fish WAV');
+      if (blob.size < 44 || blob.size > 33554432) throw new Error('Invalid XTTS WAV');
       if (myOperation !== operationId) return;
 
       const url = URL.createObjectURL(blob);
       cachedUrls.add(url);
-      button._mesoFishUrl = url;
+      button._mesoXttsUrl = url;
       activeAbort = null;
-      playFishUrl(url, button, note);
+      playXttsUrl(url, button, note);
     } catch (error) {
       if (myOperation !== operationId) return;
       activeAbort = null;
@@ -209,18 +234,18 @@
     const button = document.createElement('button');
     button.type = 'button';
     button.textContent = '▶ Play';
-    button.setAttribute('aria-label', 'Play assistant reply using Meso Fish S2');
+    button.setAttribute('aria-label', 'Play assistant reply using local XTTS');
     button.setAttribute('aria-pressed', 'false');
-    button.title = 'Play reply using Meso Fish S2';
+    button.title = 'Play reply using local XTTS';
     Object.assign(button.style, {
       padding: '6px 10px', borderRadius: '9px', border: '1px solid #4c5263',
       background: '#171b27', color: '#f6f7fb', cursor: 'pointer', fontSize: '12px'
     });
 
     const note = document.createElement('span');
-    note.textContent = ' Meso Fish S2 · browser fallback';
+    note.textContent = ' Local XTTS · browser fallback';
     Object.assign(note.style, { marginLeft: '7px', color: '#9299aa', fontSize: '10px' });
-    button.addEventListener('click', () => fishFirst(text, button, note));
+    button.addEventListener('click', () => xttsFirst(text, button, note));
 
     tools.append(button, note);
     card.appendChild(tools);
@@ -233,6 +258,7 @@
     }
   }
 
+  markLocalXttsUi();
   decorateAll();
   const observer = new MutationObserver((records) => {
     for (const record of records) {

@@ -1,0 +1,44 @@
+name: MesoAI Local XTTS Route Preflight
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - web/api/tts.php
+      - web/chat/reply-audio.js
+      - web/sw.js
+      - tools/meso_xtts_client.py
+      - deploy/deploy_to_xampp.ps1
+      - .github/workflows/meso-xtts-route-preflight.yml
+
+permissions:
+  contents: read
+
+jobs:
+  static:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Compile XTTS bridge
+        run: python3 -m py_compile tools/meso_xtts_client.py
+
+      - name: Enforce local XTTS route contract
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $tts=Get-Content -LiteralPath './web/api/tts.php' -Raw
+          $js=Get-Content -LiteralPath './web/chat/reply-audio.js' -Raw
+          foreach($needle in @('xtts-venv','meso_xtts_client.py','X-Meso-Voice: xtts-v2')){
+            if(-not $tts.Contains($needle)){throw "Missing XTTS route marker: $needle"}
+          }
+          if($tts -match 'fish-live|fish-s2'){throw 'Fish live route remains in tts.php'}
+          if($js -match 'Meso Fish|Fish S2|_mesoFish'){throw 'Fish UI route remains in reply-audio.js'}
+          if(-not $js.Contains("engine !== 'xtts-v2'")){throw 'Browser does not enforce XTTS response identity'}
+          $sw=Get-Content -LiteralPath './web/sw.js' -Raw
+          if(-not $sw.Contains("meso-app-shell-v2")){throw 'PWA cache version was not advanced'}
+          Write-Host 'MESO_XTTS_STATIC_ROUTE=PASS'
+
+      - name: PHP syntax check
+        run: php -l web/api/tts.php
