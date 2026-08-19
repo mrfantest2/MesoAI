@@ -17,6 +17,29 @@
     return 'Private text + local STT + local XTTS';
   }
 
+  function markLocalXttsUi() {
+    if (status) status.textContent = baseStatus();
+    for (const row of document.querySelectorAll('.side .status')) {
+      const label = row.querySelector('span:first-child');
+      const pill = row.querySelector('.pill');
+      if (label && pill && String(label.textContent || '').trim() === 'Cloned voice') {
+        pill.textContent = 'LOCAL XTTS';
+        pill.classList.remove('warn');
+        pill.classList.add('good');
+      }
+    }
+    const emptyDetail = messages.querySelector('.empty > div:last-child');
+    if (emptyDetail) {
+      emptyDetail.textContent = String(emptyDetail.textContent || '')
+        .replace('Memory, persona and cloned voice remain off during this stage.', 'Memory and persona remain off. Reply audio uses local XTTS on MASTER-PC.');
+    }
+    const composerNote = document.querySelector('.composer small');
+    if (composerNote) {
+      composerNote.textContent = String(composerNote.textContent || '')
+        .replace('Local STT only', 'Local STT + Local XTTS replies');
+    }
+  }
+
   function setIdle(button = activeButton, note = activeNote) {
     if (button) {
       button.textContent = '▶ Play';
@@ -235,6 +258,7 @@
     }
   }
 
+  markLocalXttsUi();
   decorateAll();
   const observer = new MutationObserver((records) => {
     for (const record of records) {
