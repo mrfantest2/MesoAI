@@ -34,6 +34,31 @@ jobs:
           python3 -m py_compile tools/meso_xtts_client.py
           python3 -m py_compile tools/import_persona_v2.py
 
+      - name: Importer keeps Maissoun only and redacts sensitive strings
+        run: |
+          python3 - <<'PY'
+          import json, pathlib, subprocess, tempfile, zipfile
+          with tempfile.TemporaryDirectory() as td:
+              root=pathlib.Path(td)
+              zpath=root/'sample.zip'
+              chat='''[01/01/2026, 1:00:00 PM] Maissoun Moussa: صباحووو شو عم تعمل؟\n[01/01/2026, 1:01:00 PM] Other Person: private third party reply\n[01/01/2026, 1:02:00 PM] Maissoun Moussa: شوف https://example.com واتصل 0501234567\n'''
+              with zipfile.ZipFile(zpath,'w',zipfile.ZIP_DEFLATED) as z:z.writestr('_chat.txt',chat)
+              out=root/'out'
+              subprocess.run(['python3','tools/import_persona_v2.py','--input',str(zpath),'--output-dir',str(out)],check=True)
+              rows=[json.loads(x) for x in (out/'corpus.jsonl').read_text(encoding='utf-8').splitlines() if x.strip()]
+              assert len(rows)==2, rows
+              joined='\n'.join(x['text'] for x in rows)
+              assert 'private third party reply' not in joined
+              assert 'https://example.com' not in joined and '[url]' in joined
+              assert '0501234567' not in joined and '[number]' in joined
+              profile=json.loads((out/'profile.json').read_text(encoding='utf-8'))
+              assert profile['version']=='meso-v2'
+              assert profile['grounding']=='evidence-retrieval'
+              assert profile['record_count']==2
+              assert profile['corpus_sha256']
+          print('MESO_PERSONA_V2_IMPORTER_BEHAVIOR=PASS')
+          PY
+
       - name: Enforce WhatsApp-grounded Persona v2 and Meso-only voice
         shell: pwsh
         run: |
