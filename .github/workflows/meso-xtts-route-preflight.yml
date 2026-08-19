@@ -5,6 +5,7 @@ on:
     branches: [main]
     paths:
       - web/api/tts.php
+      - web/api/tts-audio.php
       - web/chat/reply-audio.js
       - web/sw.js
       - tools/meso_xtts_client.py
@@ -24,25 +25,30 @@ jobs:
       - name: Compile XTTS bridge
         run: python3 -m py_compile tools/meso_xtts_client.py
 
-      - name: Enforce reviewed Meso voice over local XTTS
+      - name: Enforce reviewed Meso voice with direct browser media route
         shell: pwsh
         run: |
           $ErrorActionPreference='Stop'
           $tts=Get-Content -LiteralPath './web/api/tts.php' -Raw
+          $audio=Get-Content -LiteralPath './web/api/tts-audio.php' -Raw
           $js=Get-Content -LiteralPath './web/chat/reply-audio.js' -Raw
           $helper=Get-Content -LiteralPath './tools/meso_xtts_client.py' -Raw
           $deploy=Get-Content -LiteralPath './deploy/deploy_to_xampp.ps1' -Raw
 
-          foreach($needle in @('xtts-venv','meso_xtts_client.py','X-Meso-Voice: xtts-v2','X-Meso-Voice-Format: mp3','X-Meso-Voice-Profile: meso-a','Content-Type: audio/mpeg')){
-            if(-not $tts.Contains($needle)){throw "Missing Meso XTTS route marker: $needle"}
+          foreach($needle in @('xtts-venv','meso_xtts_client.py','"engine":"xtts-v2"','"profile":"meso-a"','"format":"mp3"','audio_url','tts-audio.php')){
+            if(-not $tts.Contains($needle)){throw "Missing direct Meso TTS marker: $needle"}
           }
           if($tts -match 'fish-live|fish-s2'){throw 'Fish live route remains in tts.php'}
 
-          if($js -match 'Meso Fish|Fish S2|_mesoFish'){throw 'Fish UI route remains in reply-audio.js'}
-          foreach($needle in @("engine !== 'xtts-v2'","format !== 'mp3'","profile !== 'meso-a'",'audio/mpeg','playPreparedXtts','createPreparedAudio','Meso voice ready','MESO VOICE','Playback blocked')){
-            if(-not $js.Contains($needle)){throw "Missing reviewed Meso playback marker: $needle"}
+          foreach($needle in @('Content-Type: audio/mpeg','Accept-Ranges: bytes','Content-Range: bytes','X-Meso-Voice-Profile: meso-a','meso_chat_require_json_auth','preg_match')){
+            if(-not $audio.Contains($needle)){throw "Missing direct Meso media endpoint marker: $needle"}
           }
-          if($js -match "Accept': 'audio/wav"){throw 'Browser still requests WAV'}
+
+          if($js -match 'Meso Fish|Fish S2|_mesoFish'){throw 'Fish UI route remains in reply-audio.js'}
+          if($js.Contains('URL.createObjectURL') -or $js.Contains('new Blob(')){throw 'Android playback still depends on a blob URL'}
+          foreach($needle in @("engine !== 'xtts-v2'","format !== 'mp3'","profile !== 'meso-a'",'audio_url','tts-audio.php','playPreparedXtts','createPreparedAudio','Meso voice ready','MESO VOICE','Playback blocked')){
+            if(-not $js.Contains($needle)){throw "Missing direct reviewed-Meso playback marker: $needle"}
+          }
 
           foreach($needle in @('libmp3lame','C:\ffmpeg\bin\ffmpeg.exe','"format": "mp3"','/data/voice/profiles/khalil/meso/refs/meso_ref_01.wav')){
             if(-not $helper.Contains($needle)){throw "Missing reviewed Meso bridge marker: $needle"}
@@ -55,8 +61,10 @@ jobs:
           }
 
           $sw=Get-Content -LiteralPath './web/sw.js' -Raw
-          if(-not $sw.Contains("meso-app-shell-v5")){throw 'PWA cache version was not advanced to v5'}
-          Write-Host 'MESO_REVIEWED_VOICE_STATIC_ROUTE=PASS'
+          if(-not $sw.Contains("meso-app-shell-v6")){throw 'PWA cache version was not advanced to v6'}
+          Write-Host 'MESO_DIRECT_MEDIA_STATIC_ROUTE=PASS'
 
       - name: PHP syntax check
-        run: php -l web/api/tts.php
+        run: |
+          php -l web/api/tts.php
+          php -l web/api/tts-audio.php
