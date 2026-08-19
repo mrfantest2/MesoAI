@@ -1,4 +1,4 @@
-const CACHE_NAME = 'meso-app-shell-v5';
+const CACHE_NAME = 'meso-app-shell-v6';
 const STATIC_ASSETS = [
   '/meso/app.webmanifest',
   '/meso/offline.html',
