@@ -24,29 +24,39 @@ jobs:
       - name: Compile XTTS bridge
         run: python3 -m py_compile tools/meso_xtts_client.py
 
-      - name: Enforce local XTTS MP3 route contract
+      - name: Enforce reviewed Meso voice over local XTTS
         shell: pwsh
         run: |
           $ErrorActionPreference='Stop'
           $tts=Get-Content -LiteralPath './web/api/tts.php' -Raw
           $js=Get-Content -LiteralPath './web/chat/reply-audio.js' -Raw
           $helper=Get-Content -LiteralPath './tools/meso_xtts_client.py' -Raw
-          foreach($needle in @('xtts-venv','meso_xtts_client.py','X-Meso-Voice: xtts-v2','X-Meso-Voice-Format: mp3','Content-Type: audio/mpeg')){
-            if(-not $tts.Contains($needle)){throw "Missing XTTS MP3 route marker: $needle"}
+          $deploy=Get-Content -LiteralPath './deploy/deploy_to_xampp.ps1' -Raw
+
+          foreach($needle in @('xtts-venv','meso_xtts_client.py','X-Meso-Voice: xtts-v2','X-Meso-Voice-Format: mp3','X-Meso-Voice-Profile: meso-a','Content-Type: audio/mpeg')){
+            if(-not $tts.Contains($needle)){throw "Missing Meso XTTS route marker: $needle"}
           }
           if($tts -match 'fish-live|fish-s2'){throw 'Fish live route remains in tts.php'}
+
           if($js -match 'Meso Fish|Fish S2|_mesoFish'){throw 'Fish UI route remains in reply-audio.js'}
-          foreach($needle in @("engine !== 'xtts-v2'","format !== 'mp3'","audio/mpeg",'playPreparedXtts','createPreparedAudio','Local XTTS ready','Playback blocked')){
-            if(-not $js.Contains($needle)){throw "Missing Android MP3 playback marker: $needle"}
+          foreach($needle in @("engine !== 'xtts-v2'","format !== 'mp3'","profile !== 'meso-a'",'audio/mpeg','playPreparedXtts','createPreparedAudio','Meso voice ready','MESO VOICE','Playback blocked')){
+            if(-not $js.Contains($needle)){throw "Missing reviewed Meso playback marker: $needle"}
           }
           if($js -match "Accept': 'audio/wav"){throw 'Browser still requests WAV'}
-          foreach($needle in @('libmp3lame','C:\ffmpeg\bin\ffmpeg.exe','"format": "mp3"')){
-            if(-not $helper.Contains($needle)){throw "Missing MP3 bridge marker: $needle"}
+
+          foreach($needle in @('libmp3lame','C:\ffmpeg\bin\ffmpeg.exe','"format": "mp3"','/data/voice/profiles/khalil/meso/refs/meso_ref_01.wav')){
+            if(-not $helper.Contains($needle)){throw "Missing reviewed Meso bridge marker: $needle"}
           }
+          if($helper.Contains('/data/voice/profiles/khalil/profile.json')){throw 'Meso bridge still loads the generic Khalil speaker profile'}
           if($helper -notmatch 'synthesize_wav' -or $helper -notmatch 'transcode_mp3'){throw 'XTTS-to-MP3 bridge stages missing'}
+
+          foreach($needle in @('C:\MesoAI\private\profile-v1\source\normalized\meso_ref_01.wav','/data/voice/profiles/khalil/meso/refs/meso_ref_01.wav','khalil-digital-twin_khalil-data','MESO_VOICE_REFERENCE_STAGED=true')){
+            if(-not $deploy.Contains($needle)){throw "Deploy does not provision reviewed Meso reference: $needle"}
+          }
+
           $sw=Get-Content -LiteralPath './web/sw.js' -Raw
-          if(-not $sw.Contains("meso-app-shell-v4")){throw 'PWA cache version was not advanced to v4'}
-          Write-Host 'MESO_XTTS_MP3_STATIC_ROUTE=PASS'
+          if(-not $sw.Contains("meso-app-shell-v5")){throw 'PWA cache version was not advanced to v5'}
+          Write-Host 'MESO_REVIEWED_VOICE_STATIC_ROUTE=PASS'
 
       - name: PHP syntax check
         run: php -l web/api/tts.php
