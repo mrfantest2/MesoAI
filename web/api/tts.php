@@ -16,7 +16,7 @@ function meso_tts_json(int $status, string $error, string $message = ''): void {
 }
 
 function meso_tts_rate_limit(): bool {
-    $root = meso_private_root() . '\\fish-live\\rate';
+    $root = meso_private_root() . '\\xtts-live\\rate';
     if (!is_dir($root) && !@mkdir($root, 0700, true) && !is_dir($root)) return false;
     $ip = (string)($_SERVER['REMOTE_ADDR'] ?? 'unknown');
     $path = $root . '\\' . hash('sha256', $ip) . '.json';
@@ -67,28 +67,28 @@ if ($text === '' || mb_strlen($text) > 1200 || str_contains($text, "\0")) {
     exit;
 }
 if (!meso_tts_rate_limit()) {
-    meso_tts_json(429, 'tts_rate_limited', 'Voice generation is busy or rate limited.');
+    meso_tts_json(429, 'tts_rate_limited', 'Local XTTS is busy or rate limited.');
     exit;
 }
 
-$privateRoot = meso_private_root() . '\\fish-live';
-$python = 'C:\\ProgramData\\KhalilDigitalTwin\\meso\\fish-live-venv\\Scripts\\python.exe';
-$helper = 'C:\\ProgramData\\KhalilDigitalTwin\\meso\\fish-live-bridge\\meso_fish_live_client.py';
-$config = $privateRoot . '\\config.json';
-if (!is_file($python) || !is_file($helper) || !is_file($config)) {
-    meso_tts_json(503, 'fish_live_unavailable', 'Meso Fish voice is offline.');
+$language = preg_match('/[\x{0600}-\x{06FF}\x{0750}-\x{077F}\x{08A0}-\x{08FF}]/u', $text) === 1 ? 'ar' : 'en';
+$privateRoot = meso_private_root() . '\\xtts-live';
+$python = 'C:\\ProgramData\\KhalilDigitalTwin\\meso\\xtts-venv\\Scripts\\python.exe';
+$helper = 'C:\\ProgramData\\KhalilDigitalTwin\\meso\\xtts-bridge\\meso_xtts_client.py';
+if (!is_file($python) || !is_file($helper)) {
+    meso_tts_json(503, 'xtts_unavailable', 'Local XTTS voice is offline.');
     exit;
 }
 
 if (!is_dir($privateRoot) && !@mkdir($privateRoot, 0700, true) && !is_dir($privateRoot)) {
-    meso_tts_json(503, 'fish_live_unavailable');
+    meso_tts_json(503, 'xtts_unavailable');
     exit;
 }
 $lockPath = $privateRoot . '\\tts.lock';
 $lock = @fopen($lockPath, 'c+');
 if (!$lock || !flock($lock, LOCK_EX | LOCK_NB)) {
     if (is_resource($lock)) fclose($lock);
-    meso_tts_json(429, 'tts_busy', 'Meso Fish voice is generating another reply.');
+    meso_tts_json(429, 'tts_busy', 'Local XTTS is generating another reply.');
     exit;
 }
 
@@ -96,17 +96,14 @@ $requestRoot = $privateRoot . '\\requests';
 if (!is_dir($requestRoot) && !@mkdir($requestRoot, 0700, true) && !is_dir($requestRoot)) {
     flock($lock, LOCK_UN);
     fclose($lock);
-    meso_tts_json(503, 'fish_live_unavailable');
+    meso_tts_json(503, 'xtts_unavailable');
     exit;
 }
 $wav = $requestRoot . '\\' . bin2hex(random_bytes(16)) . '.wav';
-$stdout = '';
-$stderr = '';
-$exitCode = -1;
 
 try {
-    @set_time_limit(115);
-    $command = [$python, $helper, '--config', $config, '--output', $wav];
+    @set_time_limit(305);
+    $command = [$python, $helper, '--output', $wav];
     $pipes = [];
     $process = @proc_open($command, [
         0 => ['pipe', 'r'],
@@ -115,7 +112,10 @@ try {
     ], $pipes, null, null, ['bypass_shell' => true]);
     if (!is_resource($process)) throw new RuntimeException('process_start_failed');
 
-    fwrite($pipes[0], json_encode(['text' => $text], JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE));
+    fwrite($pipes[0], json_encode([
+        'text' => $text,
+        'language' => $language,
+    ], JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE));
     fclose($pipes[0]);
     $stdout = (string)stream_get_contents($pipes[1]);
     fclose($pipes[1]);
@@ -136,14 +136,16 @@ try {
 
     header('Content-Type: audio/wav');
     header('Content-Length: ' . $size);
-    header('Content-Disposition: inline; filename="meso-fish-reply.wav"');
-    header('X-Meso-Voice: fish-s2');
+    header('Content-Disposition: inline; filename="meso-xtts-reply.wav"');
+    header('X-Meso-Voice: xtts-v2');
+    header('X-Meso-Voice-Location: master-pc-local');
+    header('X-Meso-Voice-Language: ' . $language);
     readfile($wav);
 } catch (Throwable $e) {
     if (!headers_sent()) {
-        // Deliberately do not return child stderr, endpoint details, private paths,
-        // reply text, API keys, or Fish response bodies to the browser.
-        meso_tts_json(503, 'fish_live_unavailable', 'Meso Fish voice is temporarily unavailable.');
+        // Do not expose child stderr, local paths, reply text, profile filenames,
+        // Docker details, or internal XTTS response bodies to the browser.
+        meso_tts_json(503, 'xtts_unavailable', 'Local XTTS voice is temporarily unavailable.');
     }
 } finally {
     @unlink($wav);
