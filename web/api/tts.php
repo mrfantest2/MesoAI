@@ -26,8 +26,7 @@ function meso_tts_rate_limit(): bool {
     if (!$fh) return false;
     try {
         if (!flock($fh, LOCK_EX)) return false;
-        $raw = stream_get_contents($fh);
-        $items = json_decode((string)$raw, true);
+        $items = json_decode((string)stream_get_contents($fh), true);
         if (!is_array($items)) $items = [];
         $now = time();
         $items = array_values(array_filter($items, static fn($t) => is_int($t) && $t > $now - 60));
@@ -41,7 +40,14 @@ function meso_tts_cleanup_ready(string $readyRoot): void {
     $cutoff = time() - 1800;
     foreach (glob($readyRoot . '\\*.mp3') ?: [] as $file) {
         $mtime = @filemtime($file);
-        if ($mtime !== false && $mtime < $cutoff) @unlink($file);
+        if ($mtime !== false && $mtime < $cutoff) {
+            @unlink($file);
+            @unlink(substr($file, 0, -4) . '.json');
+        }
+    }
+    foreach (glob($readyRoot . '\\*.json') ?: [] as $meta) {
+        $mp3 = substr($meta, 0, -5) . '.mp3';
+        if (!is_file($mp3)) @unlink($meta);
     }
 }
 
@@ -76,6 +82,7 @@ if ((!is_dir($requestRoot) && !@mkdir($requestRoot, 0700, true) && !is_dir($requ
 meso_tts_cleanup_ready($readyRoot);
 $tempPath = $requestRoot . '\\tmp-' . bin2hex(random_bytes(16)) . '.mp3';
 $publishedPath = null;
+$publishedMetaPath = null;
 try {
     @set_time_limit(305);
     $pipes = [];
@@ -88,18 +95,27 @@ try {
     if ($exitCode !== 0 || !is_file($tempPath)) throw new RuntimeException('synthesis_failed');
     $meta=json_decode(trim($stdout), true);
     $voiceProfile=is_array($meta) ? (string)($meta['profile'] ?? '') : '';
-    if (!is_array($meta) || ($meta['ok'] ?? false)!==true || ($meta['engine'] ?? '')!=='xtts-v2' || !in_array($voiceProfile,['meso-a','meso-v2'],true) || ($meta['format'] ?? '')!=='mp3') {
-        throw new RuntimeException('unexpected_voice_profile');
-    }
+    if (!is_array($meta) || ($meta['ok'] ?? false)!==true || ($meta['engine'] ?? '')!=='xtts-v2' || !in_array($voiceProfile,['meso-a','meso-v2'],true) || ($meta['format'] ?? '')!=='mp3') throw new RuntimeException('unexpected_voice_profile');
     $size=filesize($tempPath);
     if ($size===false || $size<1024 || $size>8388608) throw new RuntimeException('invalid_mp3_size');
     $fh=fopen($tempPath,'rb'); if(!$fh) throw new RuntimeException('mp3_open_failed'); $head=fread($fh,3); fclose($fh);
     $isId3=strlen($head)>=3 && $head==='ID3';
     $isFrame=strlen($head)>=2 && ord($head[0])===0xFF && (ord($head[1]) & 0xE0)===0xE0;
     if(!$isId3 && !$isFrame) throw new RuntimeException('invalid_mp3_header');
+
     $token=bin2hex(random_bytes(32));
     $publishedPath=$readyRoot.'\\'.$token.'.mp3';
+    $publishedMetaPath=$readyRoot.'\\'.$token.'.json';
     if(!@rename($tempPath,$publishedPath)) throw new RuntimeException('publish_failed');
+    $mediaMeta = json_encode([
+        'engine'=>'xtts-v2',
+        'profile'=>$voiceProfile,
+        'format'=>'mp3',
+        'language'=>$language,
+        'created_at'=>time(),
+    ], JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
+    if ($mediaMeta === false || @file_put_contents($publishedMetaPath, $mediaMeta, LOCK_EX) === false) throw new RuntimeException('metadata_publish_failed');
+
     header('X-Meso-Voice: xtts-v2');
     header('X-Meso-Voice-Format: mp3');
     header('X-Meso-Voice-Profile: '.$voiceProfile);
@@ -108,6 +124,7 @@ try {
     meso_tts_json(200, ['ok'=>true,'engine'=>'xtts-v2','profile'=>$voiceProfile,'format'=>'mp3','audio_url'=>'/meso/api/tts-audio.php?id='.$token,'expires_in'=>1800]);
 } catch(Throwable $e) {
     if($publishedPath!==null) @unlink($publishedPath);
+    if($publishedMetaPath!==null) @unlink($publishedMetaPath);
     if(!headers_sent()) meso_tts_error(503,'xtts_unavailable','Meso voice is temporarily unavailable.');
 } finally {
     @unlink($tempPath); flock($lock,LOCK_UN); fclose($lock);
