@@ -19,11 +19,36 @@ XTTS_BASE = "http://127.0.0.1:8020"
 CONTAINER = "khalil-xtts"
 MAX_TEXT = 1200
 MAX_WAV = 32 * 1024 * 1024
+MAX_REQUEST_BYTES = 16 * 1024
 
 
 def fail(message: str) -> "NoReturn":
     print(message, file=sys.stderr)
     raise SystemExit(2)
+
+
+def read_request() -> dict:
+    raw = sys.stdin.buffer.read(MAX_REQUEST_BYTES + 1)
+    if not raw or len(raw) > MAX_REQUEST_BYTES:
+        fail("invalid_json")
+
+    try:
+        if raw.startswith((b"\xff\xfe", b"\xfe\xff")):
+            decoded = raw.decode("utf-16")
+        elif raw.startswith(b"\xef\xbb\xbf"):
+            decoded = raw.decode("utf-8-sig")
+        elif b"\x00" in raw:
+            # Windows/.NET redirected stdin can arrive as BOM-less UTF-16LE.
+            decoded = raw.decode("utf-16-le")
+        else:
+            decoded = raw.decode("utf-8")
+        request = json.loads(decoded)
+    except (UnicodeDecodeError, json.JSONDecodeError):
+        fail("invalid_json")
+
+    if not isinstance(request, dict):
+        fail("invalid_request")
+    return request
 
 
 def canonical_references() -> list[str]:
@@ -87,12 +112,7 @@ def main() -> int:
     parser.add_argument("--output", required=True, type=Path)
     args = parser.parse_args()
 
-    try:
-        request = json.load(sys.stdin)
-    except Exception:
-        fail("invalid_json")
-    if not isinstance(request, dict):
-        fail("invalid_request")
+    request = read_request()
     text = str(request.get("text") or "").strip()
     language = str(request.get("language") or "en").strip().lower()
     if not text or len(text) > MAX_TEXT or "\x00" in text:
