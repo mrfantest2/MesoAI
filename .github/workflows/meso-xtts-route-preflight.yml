@@ -52,8 +52,11 @@ jobs:
             if(-not $seed.Contains($source)){throw "Persona seed missing source: $source"}
           }
           if(-not $deploy.Contains('C:\MesoAI\private\persona-v1\profile.json') -or -not $deploy.Contains('MESO_PERSONA_PROFILE_STAGED=true')){throw 'Deploy does not stage private Persona v1 profile'}
-          foreach($needle in @("require_once dirname(__DIR__) . DIRECTORY_SEPARATOR . 'includes' . DIRECTORY_SEPARATOR . 'persona.php'",'meso_persona_instructions()',"'persona' =>", "'persona_sources' =>", "'persona_grounding' =>")){
+          foreach($needle in @("require_once dirname(__DIR__) . DIRECTORY_SEPARATOR . 'includes' . DIRECTORY_SEPARATOR . 'persona.php'",'meso_persona_instructions()')){
             if(-not $chat.Contains($needle)){throw "Chat missing Persona v1 integration: $needle"}
+          }
+          foreach($pattern in @("'persona'\s*=>","'persona_sources'\s*=>","'persona_grounding'\s*=>")){
+            if($chat -notmatch $pattern){throw "Chat missing Persona v1 response field: $pattern"}
           }
           if($chat.Contains('Memory, persona simulation, and cloned voice are disabled')){throw 'Legacy persona-disabled instruction remains'}
           foreach($needle in @('persona','meso-v1')){if(-not $chatJs.Contains($needle)){throw "chat.js missing persona metadata marker: $needle"}}
@@ -66,15 +69,15 @@ jobs:
           if($helper.Contains('/data/voice/profiles/khalil/profile.json')){throw 'Meso bridge still loads generic Khalil speaker profile'}
           if($helper -notmatch 'synthesize_wav' -or $helper -notmatch 'transcode_mp3'){throw 'XTTS-to-MP3 bridge stages missing'}
 
-          foreach($needle in @("'engine' => 'xtts-v2'","'format' => 'mp3'","'audio_url' => '/meso/api/tts-audio.php?id='")){
-            if(-not $tts.Contains($needle)){throw "Missing direct Meso TTS marker: $needle"}
+          foreach($pattern in @("'engine'\s*=>\s*'xtts-v2'","'format'\s*=>\s*'mp3'","'audio_url'\s*=>\s*'/meso/api/tts-audio\.php\?id='")){
+            if($tts -notmatch $pattern){throw "Missing direct Meso TTS marker: $pattern"}
           }
           if($tts -match 'fish-live|fish-s2'){throw 'Fish live route remains in tts.php'}
           foreach($needle in @('Content-Type: audio/mpeg','Accept-Ranges: bytes','Content-Range: bytes','meso_chat_require_json_auth','preg_match')){
             if(-not $audio.Contains($needle)){throw "Missing direct Meso media endpoint marker: $needle"}
           }
           if($replyJs.Contains('URL.createObjectURL') -or $replyJs.Contains('new Blob(')){throw 'Android playback still depends on a blob URL'}
-          foreach($needle in @("engine !== 'xtts-v2'","!['meso-a', 'meso-v2'].includes(profile)",'audio_url','tts-audio.php','playPreparedXtts','Meso voice ready','MESO VOICE')){
+          foreach($needle in @("engine!=='xtts-v2'","!['meso-a', 'meso-v2'].includes(profile)",'audio_url','tts-audio.php','playPreparedXtts','Meso voice ready','MESO VOICE')){
             if(-not $replyJs.Contains($needle)){throw "Missing Voice v2 browser marker: $needle"}
           }
 
