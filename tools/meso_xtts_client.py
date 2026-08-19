@@ -1,8 +1,10 @@
 #!/usr/bin/env python3
 """Local-only MesoAI -> existing khalil-xtts bridge.
 
-Reads a small JSON request from stdin and writes one validated WAV to --output.
-No network endpoint is exposed and no voice references leave MASTER-PC.
+Reads a small JSON request from stdin, synthesizes with the existing local XTTS
+service, then transcodes the returned PCM WAV to a browser-safe MP3 before
+writing --output. No network endpoint is exposed and no voice references leave
+MASTER-PC.
 """
 from __future__ import annotations
 
@@ -17,8 +19,10 @@ from pathlib import Path
 
 XTTS_BASE = "http://127.0.0.1:8020"
 CONTAINER = "khalil-xtts"
+FFMPEG_FIXED = Path(r"C:\ffmpeg\bin\ffmpeg.exe")
 MAX_TEXT = 1200
 MAX_WAV = 32 * 1024 * 1024
+MAX_MP3 = 8 * 1024 * 1024
 MAX_REQUEST_BYTES = 16 * 1024
 
 
@@ -78,7 +82,7 @@ def canonical_references() -> list[str]:
     return refs
 
 
-def synthesize(text: str, language: str) -> bytes:
+def synthesize_wav(text: str, language: str) -> bytes:
     payload = json.dumps(
         {"text": text, "language": language, "speaker_wav": canonical_references()},
         ensure_ascii=False,
@@ -107,6 +111,56 @@ def synthesize(text: str, language: str) -> bytes:
     return audio
 
 
+def find_ffmpeg() -> str:
+    if FFMPEG_FIXED.is_file():
+        return str(FFMPEG_FIXED)
+    discovered = shutil.which("ffmpeg") or shutil.which("ffmpeg.exe")
+    if discovered:
+        return discovered
+    fail("ffmpeg_unavailable")
+
+
+def transcode_mp3(wav: bytes) -> bytes:
+    completed = subprocess.run(
+        [
+            find_ffmpeg(),
+            "-hide_banner",
+            "-loglevel",
+            "error",
+            "-f",
+            "wav",
+            "-i",
+            "pipe:0",
+            "-vn",
+            "-ac",
+            "1",
+            "-ar",
+            "24000",
+            "-codec:a",
+            "libmp3lame",
+            "-b:a",
+            "64k",
+            "-f",
+            "mp3",
+            "pipe:1",
+        ],
+        input=wav,
+        capture_output=True,
+        timeout=90,
+        check=False,
+    )
+    if completed.returncode != 0:
+        fail("mp3_transcode_failed")
+    audio = completed.stdout
+    if not (1024 <= len(audio) <= MAX_MP3):
+        fail("invalid_mp3_size")
+    has_id3 = audio.startswith(b"ID3")
+    has_frame = len(audio) >= 2 and audio[0] == 0xFF and (audio[1] & 0xE0) == 0xE0
+    if not (has_id3 or has_frame):
+        fail("invalid_mp3_header")
+    return audio
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--output", required=True, type=Path)
@@ -120,10 +174,11 @@ def main() -> int:
     if language not in {"en", "ar"}:
         fail("unsupported_language")
 
-    audio = synthesize(text, language)
+    wav = synthesize_wav(text, language)
+    audio = transcode_mp3(wav)
     args.output.parent.mkdir(parents=True, exist_ok=True)
     args.output.write_bytes(audio)
-    print(json.dumps({"ok": True, "engine": "xtts-v2", "bytes": len(audio)}, separators=(",", ":")))
+    print(json.dumps({"ok": True, "engine": "xtts-v2", "format": "mp3", "bytes": len(audio)}, separators=(",", ":")))
     return 0
 
 
