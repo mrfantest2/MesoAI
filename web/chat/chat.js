@@ -19,6 +19,7 @@
   function applyPersonaState(state){
     activePersona=String(state?.version||'off');
     activeGrounding=String(state?.grounding||'off');
+    const evidenceMode=activeGrounding==='evidence-retrieval';
     for(const row of document.querySelectorAll('.side .status')){
       const label=row.querySelector('span:first-child'); const pill=row.querySelector('.pill');
       if(label&&pill&&String(label.textContent||'').trim()==='Persona'){
@@ -30,12 +31,12 @@
     if(empty){
       const strong=empty.querySelector('strong'); const detail=empty.querySelector('div:last-child');
       if(strong)strong.textContent=activePersona==='meso-v2'?'Meso Persona v2 is ready':activePersona==='meso-v1'?'Meso Persona v1 is ready':'MesoAI chat is ready';
-      if(detail)detail.textContent=activePersona==='meso-v2'
+      if(detail)detail.textContent=evidenceMode
         ?`Private WhatsApp-grounded evidence retrieval is enabled from ${Number(state?.record_count||0).toLocaleString()} Maissoun-authored records. Memory is OFF.`
         :'Style simulation is enabled from supplied source material. Memory is OFF and unverified Meso-specific facts are not invented.';
     }
     const composerNote=document.querySelector('.composer small');
-    if(composerNote)composerNote.textContent=activePersona==='meso-v2'
+    if(composerNote)composerNote.textContent=evidenceMode
       ?'Local STT + Meso voice · Persona MESO v2 · Memory OFF · Historical evidence retrieval'
       :'Local STT + Meso voice · Persona MESO v1 · Memory OFF · Source-grounded style';
     if(!send.disabled)status.textContent=baseStatus();
@@ -50,7 +51,7 @@
     }catch(_){/* keep server-rendered v1-safe fallback */}
   }
 
-  function newChat(){if(recording||transcribing)return;history.length=0;showEmpty('New conversation',`${activePersona==='meso-v2'?'Historical evidence remains available. ':''}Conversation memory was cleared and is not stored server-side.`);input.focus();}
+  function newChat(){if(recording||transcribing)return;history.length=0;showEmpty('New conversation',`${activeGrounding==='evidence-retrieval'?'Historical evidence remains available. ':''}Conversation memory was cleared and is not stored server-side.`);input.focus();}
 
   async function sendText(){
     const text=input.value.trim(); if(!text||send.disabled)return;
