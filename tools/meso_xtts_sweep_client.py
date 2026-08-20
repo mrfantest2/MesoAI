@@ -18,6 +18,7 @@ ALLOWED_LABELS = {'A', 'B', 'C', 'D', 'E'}
 XTTS_ALLOWED_ROOT = "/data/voice/profiles/khalil"
 CONTAINER = "khalil-xtts"
 MAX_BATCHES = 20
+SPEAKER_FIELD = "speaker_wav"  # synthesize_wav emits this XTTS service field.
 
 
 def load_ref(batch: int, label: str) -> str:
