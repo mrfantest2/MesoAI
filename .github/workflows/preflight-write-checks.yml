@@ -1,50 +1,20 @@
-name: MesoAI Preflight Write Checks
+name: Meso Voice v2.2 Sweep TDD
 
 on:
   push:
     branches:
-      - preflight-write/meso-next
-  workflow_dispatch:
+      - feat/meso-voice-v22-sweep
+  pull_request:
 
 permissions:
   contents: read
 
 jobs:
-  validate:
+  voice-v22-contract:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
-      - name: Checkout branch
-        uses: actions/checkout@v4
-
-      - name: Shell syntax
-        run: |
-          bash -n tools/run_fish_s2_ephemeral.sh
-          bash -n tools/start_fish_s2_live_api.sh
-
-      - name: Python compile
-        run: python3 -m py_compile tools/*.py
-
-      - name: JavaScript syntax
-        run: |
-          node --check web/chat/chat.js
-          node --check web/chat/reply-audio.js
-
-      - name: PowerShell deployment syntax
-        shell: pwsh
-        run: |
-          foreach ($path in @(
-            'deploy/deploy_to_xampp.ps1',
-            'deploy/fish_s2_remote_preflight.ps1',
-            'deploy/fish_s2_remote_handoff.ps1',
-            'deploy/fish_s2_run.ps1',
-            'deploy/stage_fish_live_client.ps1',
-            'deploy/start_fish_live_service.ps1'
-          )) {
-            $text = Get-Content -LiteralPath $path -Raw
-            [void][scriptblock]::Create($text)
-            Write-Host "POWERSHELL_SYNTAX_OK=$path"
-          }
+      - uses: actions/checkout@v4
 
       - name: Install PHP CLI
         run: |
@@ -53,132 +23,76 @@ jobs:
             sudo apt-get install -y -qq php-cli
           fi
 
-      - name: PHP syntax
-        run: |
-          php -l web/includes/chat_auth.php
-          php -l web/chat/index.php
-          php -l web/api/chat.php
-          php -l web/api/transcribe.php
-          php -l web/api/tts.php
-          php -l web/api/local-chat-bootstrap.php
-          php -l web/api/status.php
-
-      - name: Public privacy invariants
-        run: |
-          if grep -RniE 'Jamal' web; then
-            echo 'Removed speaker name reappeared in public web source.' >&2
-            exit 1
-          fi
-          legacy="$(grep -RniE 'negative_audio|negative_duration' web || true)"
-          unexpected="$(printf '%s\n' "$legacy" | grep -vE '^web/api/status\.php:.*unset\(' || true)"
-          if [ -n "$unexpected" ]; then
-            echo 'Removed speaker fields reappeared outside the defensive status unset:' >&2
-            echo "$unexpected" >&2
-            exit 1
-          fi
-          test ! -e web/api/local-xtts-license.php
-          if grep -nE 'onclick=|<script>[[:space:]]*$' web/chat/index.php; then
-            echo 'Inline chat JavaScript reappeared.' >&2
-            exit 1
-          fi
-          echo 'MESO_PUBLIC_PRIVACY_STATIC_OK=true'
-
-      - name: Local chat STT isolation invariants
+      - name: Voice v2.2 single-reference sweep contract
         run: |
           python3 - <<'PY'
           from pathlib import Path
-          endpoint = Path('web/api/transcribe.php').read_text(encoding='utf-8')
-          helper = Path('tools/transcribe_chat_audio.py').read_text(encoding='utf-8')
-          chat = Path('web/chat/chat.js').read_text(encoding='utf-8')
-          page = Path('web/chat/index.php').read_text(encoding='utf-8')
-          deploy = Path('deploy/deploy_to_xampp.ps1').read_text(encoding='utf-8')
-          assert 'meso_chat_require_json_auth' in endpoint
-          assert '"provider_upload": False' in helper
-          assert r'C:\MesoAI\private\chat-stt' in helper
-          assert 'transcribe.php' in chat
-          assert 'microphone=(self)' in page
-          assert 'MESO_CHAT_STT_RUNTIME_STAGED=true' in deploy
-          forbidden = ('api.openai.com', 'api.anthropic.com', 'googleapis.com', 'deepgram', 'assemblyai')
-          combined = (endpoint + '\n' + helper).lower()
-          assert not any(item in combined for item in forbidden)
-          print('MESO_LOCAL_CHAT_STT_ISOLATION_OK=true')
+
+          required = [
+              Path('tools/meso_xtts_sweep_client.py'),
+              Path('web/voice-lab/index.php'),
+              Path('web/voice-lab/voice-lab.js'),
+              Path('web/api/voice-lab-v22.php'),
+              Path('web/api/voice-lab-v22-audio.php'),
+          ]
+          for p in required:
+              assert p.is_file(), f'missing {p}'
+
+          helper = required[0].read_text(encoding='utf-8')
+          page = required[1].read_text(encoding='utf-8')
+          js = required[2].read_text(encoding='utf-8')
+          api = required[3].read_text(encoding='utf-8')
+          audio = required[4].read_text(encoding='utf-8')
+          combined = '\n'.join((page, js, api, audio))
+
+          assert r'C:\MesoAI\private\voice-lab-v22\sweep.json' in helper
+          assert '/data/voice/profiles/khalil' in helper
+          assert 'speaker_wav' in helper and 'xtts-v2' in helper
+          normalized = helper.replace(' ', '')
+          assert "{'A','B','C','D','E'}" in normalized
+          assert 'batch' in helper
+          assert 'len(refs) != 1' in helper or 'len(refs)!=1' in normalized
+
+          assert 'meso_chat_require_json_auth' in api
+          assert 'meso_chat_require_json_auth' in audio
+          assert 'Accept-Ranges: bytes' in audio
+          assert 'Content-Range: bytes' in audio
+          assert 'reject' in api.lower() and 'vote' in api.lower()
+
+          assert 'Reject all' in page
+          assert 'data-label="E"' in page
+          assert 'Batch' in page
+          assert '/meso/api/voice-lab-v22.php' in js
+          assert '/meso/api/voice-lab-v22-audio.php' in js
+          assert 'rejectAll' in js
+          assert 'nextBatch' in js
+
+          assert 'sweep.json' not in combined
+          assert 'WhatsApp' not in combined and 'Instagram' not in combined
+          assert 'single-best-whatsapp' not in combined
+          assert 'four-clean-whatsapp' not in combined
+          assert 'hybrid-two-whatsapp-two-instagram' not in combined
+          print('MESO_VOICE_V22_SWEEP_STATIC=PASS')
           PY
 
-      - name: Live Fish reply TTS invariants
+      - name: Syntax
         run: |
-          python3 - <<'PY'
-          from pathlib import Path
-          client = Path('tools/meso_fish_live_client.py').read_text(encoding='utf-8')
-          launcher = Path('tools/start_fish_s2_live_api.sh').read_text(encoding='utf-8')
-          endpoint = Path('web/api/tts.php').read_text(encoding='utf-8')
-          ui = Path('web/chat/reply-audio.js').read_text(encoding='utf-8')
-          stage = Path('deploy/stage_fish_live_client.ps1').read_text(encoding='utf-8')
-          handoff = Path('deploy/start_fish_live_service.ps1').read_text(encoding='utf-8')
+          python3 -m py_compile tools/meso_xtts_sweep_client.py
+          node --check web/voice-lab/voice-lab.js
+          php -l web/voice-lab/index.php
+          php -l web/api/voice-lab-v22.php
+          php -l web/api/voice-lab-v22-audio.php
 
-          assert 'meso_chat_require_json_auth' in endpoint
-          assert 'fish-live-venv' in endpoint and 'python.exe' in endpoint
-          assert 'fish-live' in endpoint and 'config.json' in endpoint
-          assert 'proc_open' in endpoint
-          assert "X-Meso-Voice: fish-s2" in endpoint
-          assert '/meso/api/tts.php' in ui
-          assert 'Meso Fish S2' in ui
-          assert 'Browser fallback' in ui
-          assert 'speechSynthesis' in ui
-          assert 'msgpack.packb' in client
-          assert '.proxy.runpod.net' in client
-          assert 'reference_id' in client
-          assert 'MESO_FISH_LICENSE_ACCEPTED' in launcher
-          assert 'e5e292632cb11e7a27b2b7487f58f612bc101e13' in launcher
-          assert '--api-key' in launcher
-          assert '--workers 1' in launcher
-          assert 'references/$REFERENCE_ID' in launcher
-          assert 'sample.lab' in launcher
-          assert 'msgpack==1.1.1' in stage
-          assert 'live_service_expired' in stage
-          assert 'ExpectedHostKeySha256' in handoff
-          assert 'MESO_FISH_LIVE_REMOTE_INPUT_HASHES_VERIFIED=true' in handoff
-          assert 'MESO_FISH_LIVE_PUBLIC_TTS_VERIFIED=true' in handoff
-          assert "Remove-Item -LiteralPath $configPath" in handoff
-
-          public = endpoint + '\n' + ui
-          forbidden_private = ('meso_ref_01.wav', 'reference.txt', 'api-key.txt', '/workspace/meso-live-private')
-          assert not any(item in public for item in forbidden_private)
-          print('MESO_FISH_LIVE_REPLY_TTS_STATIC_OK=true')
-          PY
-
-      - name: Fish fail-closed invariants
-        run: |
-          grep -q 'MESO_FISH_LICENSE_ACCEPTED' tools/run_fish_s2_ephemeral.sh
-          grep -q 'PROJECT_SLUG' tools/run_fish_s2_ephemeral.sh
-          grep -q 'ExpectedHostKeySha256' deploy/fish_s2_remote_preflight.ps1
-          grep -q 'MESO_FISH_ZERO_DATA_REMOTE_PREFLIGHT' deploy/fish_s2_remote_preflight.ps1
-          grep -q 'private_data_transferred = \$false' deploy/fish_s2_remote_preflight.ps1
-          grep -q 'ExpectedHostKeySha256' deploy/fish_s2_remote_handoff.ps1
-          grep -q 'SharedWorkRoot' deploy/fish_s2_remote_handoff.ps1
-          grep -q 'ProjectSlug' deploy/fish_s2_remote_handoff.ps1
-          grep -q 'MESO_FISH_REMOTE_INPUT_HASHES_VERIFIED' deploy/fish_s2_remote_handoff.ps1
-          grep -q 'MESO_FISH_DOWNLOADED_OUTPUTS_VERIFIED' deploy/fish_s2_remote_handoff.ps1
-          grep -q 'MESO_FISH_ORCHESTRATOR_LICENSE_GATE' deploy/fish_s2_run.ps1
-          grep -q 'MESO_FISH_ORCHESTRATOR_ZERO_DATA_PREFLIGHT_COMPLETE' deploy/fish_s2_run.ps1
-          grep -q 'MESO_FISH_ORCHESTRATOR_PRIVATE_HANDOFF_COMPLETE' deploy/fish_s2_run.ps1
-          python3 - <<'PY'
-          from pathlib import Path
-          s = Path('deploy/fish_s2_run.ps1').read_text(encoding='utf-8')
-          assert s.index('& $preflight @preflightArgs') < s.index('& $handoff @handoffArgs')
-          h = Path('deploy/fish_s2_remote_handoff.ps1').read_text(encoding='utf-8')
-          assert 'KEEP_WORKDIR=1' in h
-          assert 'rm -rf -- $RemoteRoot' in h
-          assert 'rm -rf -- $SharedWorkRoot' not in h
-          print('MESO_FISH_SHARED_CACHE_ISOLATION_OK=true')
-          PY
-          echo 'MESO_FISH_PREFLIGHT_STATIC_OK=true'
-
-      - name: Reject private media in Git
+      - name: Reject private media and source identities in Git
         run: |
           bad="$(git ls-files | grep -Ei '\.(wav|mp3|m4a|aac|opus|ogg|flac|zip|7z)$' || true)"
           if [ -n "$bad" ]; then
-            echo 'Private/media archive file extensions are tracked:' >&2
             echo "$bad" >&2
             exit 1
           fi
-          echo 'MESO_NO_TRACKED_PRIVATE_MEDIA=true'
+          targets='tools/meso_xtts_sweep_client.py web/voice-lab/index.php web/voice-lab/voice-lab.js web/api/voice-lab-v22.php web/api/voice-lab-v22-audio.php'
+          if grep -niE 'AUDIO-[0-9]{4}-|maissoun_moussa_[0-9]+|Jamal Bro|Hamo Egypt|Khelo|WhatsApp|Instagram' $targets; then
+            echo 'Private source identity leaked into v2.2 tracked source.' >&2
+            exit 1
+          fi
+          echo 'MESO_VOICE_V22_PRIVATE_MEDIA_GIT=PASS'
