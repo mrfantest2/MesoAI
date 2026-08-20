@@ -90,8 +90,9 @@ jobs:
             echo "$bad" >&2
             exit 1
           fi
-          if grep -RniE 'AUDIO-[0-9]{4}-|maissoun_moussa_[0-9]+|Jamal Bro|Hamo Egypt|Khelo' web tools; then
-            echo 'Private source identity leaked into tracked source.' >&2
+          targets='tools/meso_xtts_sweep_client.py web/voice-lab/index.php web/voice-lab/voice-lab.js web/api/voice-lab-v22.php web/api/voice-lab-v22-audio.php'
+          if grep -niE 'AUDIO-[0-9]{4}-|maissoun_moussa_[0-9]+|Jamal Bro|Hamo Egypt|Khelo|WhatsApp|Instagram' $targets; then
+            echo 'Private source identity leaked into v2.2 tracked source.' >&2
             exit 1
           fi
           echo 'MESO_VOICE_V22_PRIVATE_MEDIA_GIT=PASS'
