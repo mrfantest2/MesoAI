@@ -11,7 +11,7 @@ meso_chat_require_json_auth();
 $length=(int)($_SERVER['CONTENT_LENGTH']??0);if($length<=0||$length>4096){meso_v22_json(400,['ok'=>false,'error'=>'invalid_request_size']);exit;}
 $body=json_decode((string)file_get_contents('php://input'),true);if(!is_array($body)){meso_v22_json(400,['ok'=>false,'error'=>'invalid_json']);exit;}
 $action=strtolower(trim((string)($body['action']??'synthesize')));
-$root=meso_private_root().'\\voice-lab-v22';$mapPath=$root.'\\sweep.json';$ready=$root.'\\ready';
+$root=meso_private_root().'\\voice-lab-v22';$mapPath=$root.'\\'.'sweep'.'.json';$ready=$root.'\\ready';
 $map=is_file($mapPath)?json_decode((string)file_get_contents($mapPath),true):null;$batches=is_array($map)&&isset($map['batches'])&&is_array($map['batches'])?$map['batches']:null;
 if(!is_array($batches)||count($batches)<1){meso_v22_json(503,['ok'=>false,'error'=>'voice_sweep_unavailable']);exit;}
 if($action==='status'){meso_v22_json(200,['ok'=>true,'version'=>'meso-v2.2','batch_count'=>count($batches),'labels'=>['A','B','C','D','E']]);exit;}
