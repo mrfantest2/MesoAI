@@ -1,15 +1,15 @@
-name: Meso Voice v2.1 Lab TDD
+name: Meso Voice v2.2 Sweep TDD
 
 on:
   push:
     branches:
-      - preflight-write/meso-next
+      - feat/meso-voice-v22-sweep
 
 permissions:
   contents: read
 
 jobs:
-  voice-v21-contract:
+  voice-v22-contract:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -22,17 +22,17 @@ jobs:
             sudo apt-get install -y -qq php-cli
           fi
 
-      - name: Voice v2.1 blind lab contract
+      - name: Voice v2.2 single-reference sweep contract
         run: |
           python3 - <<'PY'
           from pathlib import Path
 
           required = [
-              Path('tools/meso_xtts_lab_client.py'),
+              Path('tools/meso_xtts_sweep_client.py'),
               Path('web/voice-lab/index.php'),
               Path('web/voice-lab/voice-lab.js'),
-              Path('web/api/voice-lab.php'),
-              Path('web/api/voice-lab-audio.php'),
+              Path('web/api/voice-lab-v22.php'),
+              Path('web/api/voice-lab-v22-audio.php'),
           ]
           for p in required:
               assert p.is_file(), f'missing {p}'
@@ -44,32 +44,43 @@ jobs:
           audio = required[4].read_text(encoding='utf-8')
           combined = '\n'.join((page, js, api, audio))
 
-          assert r'C:\MesoAI\private\voice-lab\profile-map.json' in helper
+          assert r'C:\MesoAI\private\voice-lab-v22\sweep.json' in helper
           assert '/data/voice/profiles/khalil' in helper
           assert 'speaker_wav' in helper and 'xtts-v2' in helper
-          assert "{'A','B','C','D'}" in helper.replace(' ', '') or "{'A', 'B', 'C', 'D'}" in helper
+          normalized = helper.replace(' ', '')
+          assert "{'A','B','C','D','E'}" in normalized
+          assert 'batch' in helper
+          assert 'len(refs) != 1' in helper or 'len(refs)!=1' in normalized
+
           assert 'meso_chat_require_json_auth' in api
           assert 'meso_chat_require_json_auth' in audio
           assert 'Accept-Ranges: bytes' in audio
           assert 'Content-Range: bytes' in audio
-          assert 'profile-map.json' not in combined
+          assert 'reject' in api.lower() and 'vote' in api.lower()
+
+          assert 'Reject all' in page
+          assert 'data-label="E"' in page
+          assert 'Batch' in page
+          assert '/meso/api/voice-lab-v22.php' in js
+          assert '/meso/api/voice-lab-v22-audio.php' in js
+          assert 'rejectAll' in js
+          assert 'nextBatch' in js
+
+          assert 'sweep.json' not in combined
           assert 'WhatsApp' not in combined and 'Instagram' not in combined
           assert 'single-best-whatsapp' not in combined
           assert 'four-clean-whatsapp' not in combined
           assert 'hybrid-two-whatsapp-two-instagram' not in combined
-          assert 'A' in page and 'B' in page and 'C' in page and 'D' in page
-          assert '/meso/api/voice-lab.php' in js
-          assert '/meso/api/voice-lab-audio.php' in js
-          print('MESO_VOICE_V21_BLIND_LAB_STATIC=PASS')
+          print('MESO_VOICE_V22_SWEEP_STATIC=PASS')
           PY
 
       - name: Syntax
         run: |
-          python3 -m py_compile tools/meso_xtts_lab_client.py
+          python3 -m py_compile tools/meso_xtts_sweep_client.py
           node --check web/voice-lab/voice-lab.js
           php -l web/voice-lab/index.php
-          php -l web/api/voice-lab.php
-          php -l web/api/voice-lab-audio.php
+          php -l web/api/voice-lab-v22.php
+          php -l web/api/voice-lab-v22-audio.php
 
       - name: Reject private media and source identities in Git
         run: |
@@ -78,8 +89,8 @@ jobs:
             echo "$bad" >&2
             exit 1
           fi
-          if grep -RniE '00008012-AUDIO|00007407-AUDIO|00009632-AUDIO|00010216-AUDIO|maissoun_moussa_[0-9]+' web tools; then
+          if grep -RniE 'AUDIO-[0-9]{4}-|maissoun_moussa_[0-9]+|Jamal Bro|Hamo Egypt|Khelo' web tools; then
             echo 'Private source identity leaked into tracked source.' >&2
             exit 1
           fi
-          echo 'MESO_VOICE_V21_PRIVATE_MEDIA_GIT=PASS'
+          echo 'MESO_VOICE_V22_PRIVATE_MEDIA_GIT=PASS'
