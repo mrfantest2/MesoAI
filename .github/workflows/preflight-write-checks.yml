@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - feat/meso-voice-v22-sweep
+  pull_request:
 
 permissions:
   contents: read
