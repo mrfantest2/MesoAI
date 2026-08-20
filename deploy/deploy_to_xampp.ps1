@@ -13,25 +13,46 @@ $chatSttHelper=Join-Path $RepoRoot 'tools\transcribe_chat_audio.py'
 $chatTtsHelper=Join-Path $RepoRoot 'tools\meso_xtts_client.py'
 $pwaIconGenerator=Join-Path $RepoRoot 'deploy\generate_pwa_icons.ps1'
 $personaSeed=Join-Path $RepoRoot 'deploy\persona-v1.seed.json'
+$personaV2Seed=Join-Path $RepoRoot 'deploy\persona-v2.seed.json'
 $personaDir='C:\MesoAI\private\persona-v1'
 $personaProfile='C:\MesoAI\private\persona-v1\profile.json'
+$personaV2Dir='C:\MesoAI\private\persona-v2'
+$personaV2Profile='C:\MesoAI\private\persona-v2\profile.json'
+$personaV2Corpus='C:\MesoAI\private\persona-v2\corpus.jsonl'
 $MesoVoiceSource='C:\MesoAI\private\profile-v1\source\normalized\meso_ref_01.wav'
 $MesoVoiceVolume='khalil-digital-twin_khalil-data'
 $MesoVoiceAllowedRoot='/data/voice/profiles/khalil'
 $MesoVoiceContainerDir='/data/voice/profiles/khalil/meso/refs'
 $MesoVoiceContainerPath='/data/voice/profiles/khalil/meso/refs/meso_ref_01.wav'
 
-foreach($p in @($web,$chatSttHelper,$chatTtsHelper,$pwaIconGenerator,$personaSeed,$ChatSttPython,$ChatTtsPython,$MesoVoiceSource)){if(!(Test-Path -LiteralPath $p)){throw "Required deploy input missing: $p"}}
-New-Item -ItemType Directory -Force -Path $Target,$BackupRoot,$ChatSttRuntime,(Join-Path $ChatSttRuntime 'tmp'),$ChatTtsRuntime,$personaDir|Out-Null
+foreach($p in @($web,$chatSttHelper,$chatTtsHelper,$pwaIconGenerator,$personaSeed,$personaV2Seed,$ChatSttPython,$ChatTtsPython,$MesoVoiceSource)){if(!(Test-Path -LiteralPath $p)){throw "Required deploy input missing: $p"}}
+New-Item -ItemType Directory -Force -Path $Target,$BackupRoot,$ChatSttRuntime,(Join-Path $ChatSttRuntime 'tmp'),$ChatTtsRuntime,$personaDir,$personaV2Dir|Out-Null
 
-# Persona seed is private and is only installed when no profile exists, so future
-# transcript-grounded profiles are never overwritten by application deploys.
+# Persona v1 remains a safe fallback. Application deploys never overwrite a
+# previously installed private profile.
 if(!(Test-Path -LiteralPath $personaProfile -PathType Leaf)){
   Copy-Item -LiteralPath $personaSeed -Destination $personaProfile -Force
   $p=Get-Content -LiteralPath $personaProfile -Raw|ConvertFrom-Json
   if($p.version -ne 'meso-v1' -or -not $p.enabled){throw 'Persona v1 seed validation failed'}
 }
 Write-Host 'MESO_PERSONA_PROFILE_STAGED=true'
+
+# Persona v2 is installed out-of-band as a private corpus. Detect it, verify its
+# integrity, and leave it untouched. Nothing under persona-v2 is copied to htdocs.
+$v2ProfileExists=Test-Path -LiteralPath $personaV2Profile -PathType Leaf
+$v2CorpusExists=Test-Path -LiteralPath $personaV2Corpus -PathType Leaf
+if($v2ProfileExists -xor $v2CorpusExists){throw 'Persona v2 private profile/corpus pair is incomplete'}
+if($v2ProfileExists -and $v2CorpusExists){
+  $v2=Get-Content -LiteralPath $personaV2Profile -Raw|ConvertFrom-Json
+  if($v2.version -ne 'meso-v2' -or -not $v2.enabled -or $v2.grounding -ne 'evidence-retrieval'){throw 'Persona v2 private profile contract failed'}
+  $expected=[string]$v2.corpus_sha256
+  $actual=(Get-FileHash -LiteralPath $personaV2Corpus -Algorithm SHA256).Hash.ToLowerInvariant()
+  if([string]::IsNullOrWhiteSpace($expected) -or $expected.ToLowerInvariant() -ne $actual){throw 'Persona v2 corpus integrity verification failed'}
+  if([int]$v2.record_count -lt 1){throw 'Persona v2 corpus record_count is empty'}
+  Write-Host "MESO_PERSONA_V2_DETECTED=true RECORDS=$([int]$v2.record_count) SOURCES=$([int]$v2.source_count)"
+}else{
+  Write-Host 'MESO_PERSONA_V2_DETECTED=false'
+}
 
 # Preserve the reviewed Meso A fallback in the protected XTTS data volume.
 $xttsInspect=& docker inspect khalil-xtts|ConvertFrom-Json
