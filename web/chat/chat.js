@@ -94,6 +94,23 @@
     for(const item of items){const role=String(item?.role||'');if(role!=='user'&&role!=='assistant')continue;addMessage(role,String(item?.content||''),messageMeta(item));}
   }
 
+  async function activateConversation(conversationId){
+    const id=String(conversationId||'');
+    if(!validId(id))throw new Error('invalid_conversation_id');
+    if(recording||transcribing)throw new Error('conversation_busy');
+    setBusy(true,'Loading private conversation…');
+    try{
+      await loadMessages(id);
+      activeConversationId=id;
+      storeConversationId(id);
+      emitConversationChanged();
+      return id;
+    }finally{
+      setBusy(false);
+      input.focus();
+    }
+  }
+
   async function ensureConversation(){
     const stored=getStoredConversationId();
     if(stored){
@@ -105,14 +122,19 @@
   }
 
   async function newChat(){
-    if(recording||transcribing||send.disabled)return;
+    if(recording||transcribing||send.disabled)return '';
     setBusy(true,'Creating private conversation…');
     try{
       const id=await createConversation();
       await loadMessages(id);
       showEmpty('New conversation','A new private conversation is ready. Previous conversations remain stored privately on MASTER-PC.');
-    }catch(error){addMessage('assistant',`Could not create conversation: ${error.message}`,'system');}
-    finally{setBusy(false);input.focus();}
+      return id;
+    }catch(error){
+      addMessage('assistant',`Could not create conversation: ${error.message}`,'system');
+      return '';
+    }finally{
+      setBusy(false);input.focus();
+    }
   }
 
   async function sendText(){
@@ -165,8 +187,17 @@
   }
 
   window.mesoActiveConversationId=()=>activeConversationId;
+  window.mesoChatBridge={
+    activateConversation,
+    newConversation:newChat,
+    reloadActive:()=>validId(activeConversationId)?activateConversation(activeConversationId):Promise.reject(new Error('invalid_conversation_id')),
+  };
   send.addEventListener('click',sendText);
-  if(newChatButton)newChatButton.addEventListener('click',newChat);
+  if(newChatButton)newChatButton.addEventListener('click',()=>{
+    const controller=window.mesoConversationController;
+    if(controller&&typeof controller.newConversation==='function')controller.newConversation().catch(error=>addMessage('assistant',`Could not create conversation: ${error.message}`,'system'));
+    else newChat();
+  });
   if(mic)mic.addEventListener('click',()=>recording?stopRecording():startRecording());
   input.addEventListener('keydown',e=>{if(e.key==='Enter'&&(e.ctrlKey||e.metaKey)){e.preventDefault();sendText();}});
   window.addEventListener('pagehide',stopTracks);
