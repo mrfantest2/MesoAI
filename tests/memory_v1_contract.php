@@ -18,6 +18,19 @@ function rrmdir(string $path): void {
     @rmdir($path);
 }
 
+expect_true(function_exists('meso_chat_state_request_allowed'), 'State-request guard helper is missing');
+$stateServer = [
+    'CONTENT_TYPE'=>'application/json; charset=utf-8',
+    'HTTP_SEC_FETCH_SITE'=>'same-origin',
+    'HTTP_HOST'=>'fantest.win',
+    'HTTPS'=>'on',
+    'HTTP_ORIGIN'=>'https://fantest.win',
+];
+expect_true(meso_chat_state_request_allowed($stateServer), 'Valid same-origin JSON state request was rejected');
+expect_true(!meso_chat_state_request_allowed($stateServer + ['HTTP_SEC_FETCH_SITE'=>'cross-site']), 'Cross-site state request was accepted');
+expect_true(!meso_chat_state_request_allowed(array_merge($stateServer, ['CONTENT_TYPE'=>'text/plain'])), 'Non-JSON state request was accepted');
+expect_true(!meso_chat_state_request_allowed(array_merge($stateServer, ['HTTP_ORIGIN'=>'https://evil.example'])), 'Foreign Origin state request was accepted');
+
 $base = sys_get_temp_dir() . DIRECTORY_SEPARATOR . 'meso-memory-v1-' . bin2hex(random_bytes(8));
 $memoryRoot = $base . DIRECTORY_SEPARATOR . 'memory-v1';
 putenv('MESO_MEMORY_ROOT=' . $memoryRoot);
