@@ -31,15 +31,25 @@ jobs:
           test -f deploy/deploy_to_xampp.ps1
           test -f web/chat/index.php
           test -f web/chat/chat.js
+          test -f web/chat/memory.js
           test -f web/chat/reply-audio.js
+          test -f web/includes/memory.php
+          test -f web/api/chat.php
+          test -f web/api/conversations.php
+          test -f web/api/messages.php
+          test -f web/api/memory.php
           test -f web/api/tts.php
           test -f web/api/transcribe.php
+          test -f tools/memory_v1_bootstrap.php
           test -f web/app.webmanifest
           test -f web/sw.js
           grep -q 'application/manifest+json' web/.htaccess
           grep -q 'beforeinstallprompt' web/pwa/install.js
           grep -q "url.pathname.startsWith('/meso/api/')" web/sw.js
+          grep -q 'meso-memory-v1' web/api/chat.php
+          grep -q 'MESO_MEMORY_V1_READY=true' deploy/deploy_to_xampp.ps1
           echo 'MESO_MAIN_SOURCE_GATE=true'
+          echo 'MESO_MEMORY_V1_SOURCE_GATE=true'
           echo 'MASTER_PC_DEPLOY_OWNER=Khalil-Digital-Twin/mesoai-deploy-bridge'
           echo 'MASTER_PC_SELF_HOSTED_RUNNER_REQUIRED=false'
           echo 'RUNPOD_STARTED=false'
@@ -49,3 +59,4 @@ jobs:
         run: |
           echo 'MesoAI is the canonical product source.'
           echo 'MASTER-PC deployment is intentionally executed only through the private KDT bridge.'
+          echo 'Memory v1 persists only under the private MesoAI runtime root and is never copied into htdocs.'
