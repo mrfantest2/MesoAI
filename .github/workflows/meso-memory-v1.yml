@@ -1,0 +1,37 @@
+name: MesoAI Memory v1 TDD
+
+on:
+  push:
+    branches: [feature/meso-v3-program]
+    paths:
+      - 'web/includes/memory.php'
+      - 'tests/memory_v1_test.php'
+      - '.github/workflows/meso-memory-v1.yml'
+  pull_request:
+    paths:
+      - 'web/includes/memory.php'
+      - 'tests/memory_v1_test.php'
+      - '.github/workflows/meso-memory-v1.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  memory-v1:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install PHP SQLite support
+        shell: bash
+        run: |
+          set -euo pipefail
+          if ! php -m | grep -qi '^pdo_sqlite$'; then
+            sudo apt-get update -qq
+            sudo apt-get install -y -qq php-sqlite3
+          fi
+          php -m | grep -qi '^pdo_sqlite$'
+
+      - name: Memory repository behavior
+        run: php tests/memory_v1_test.php
