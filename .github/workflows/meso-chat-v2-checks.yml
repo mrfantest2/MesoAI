@@ -1,0 +1,59 @@
+name: MesoAI Chat v2 Checks
+
+on:
+  push:
+    branches: [feature/meso-v3-program-recovered]
+    paths:
+      - web/chat/index.php
+      - web/chat/chat.js
+      - web/chat/conversations.js
+      - web/sw.js
+      - .github/workflows/meso-chat-v2-checks.yml
+  pull_request:
+    branches: [main]
+    paths:
+      - web/chat/index.php
+      - web/chat/chat.js
+      - web/chat/conversations.js
+      - web/sw.js
+      - .github/workflows/meso-chat-v2-checks.yml
+
+permissions:
+  contents: read
+
+jobs:
+  chat-v2:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Syntax
+        run: |
+          php -l web/chat/index.php
+          node --check web/chat/chat.js
+          node --check web/chat/conversations.js
+          node --check web/sw.js
+
+      - name: Persistent conversation navigator contract
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          page=Path('web/chat/index.php').read_text(encoding='utf-8')
+          js=Path('web/chat/conversations.js').read_text(encoding='utf-8')
+          chat=Path('web/chat/chat.js').read_text(encoding='utf-8')
+          sw=Path('web/sw.js').read_text(encoding='utf-8')
+
+          for marker in ('conversationList','archivedConversationList','conversationDrawer','conversationDrawerToggle'):
+              assert marker in page, marker
+          for marker in ('/meso/api/conversations.php','/meso/api/messages.php','mesoConversationController','meso:conversation-changed','rename','archive','delete'):
+              assert marker in js, marker
+          assert 'textContent' in js
+          assert 'innerHTML' not in js
+          assert 'meso.activeConversation.v1' in chat
+          assert 'mesoConversationController' in chat
+          assert 'meso-app-shell-v10' in sw
+          assert '/meso/chat/conversations.js' in sw
+          assert "url.pathname.startsWith('/meso/api/')" in sw
+          print('MESO_CHAT_V2_CONVERSATIONS=PASS')
+          PY
