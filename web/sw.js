@@ -1,10 +1,12 @@
-// Prior cache floors retained for compatibility checks: meso-app-shell-v6 meso-app-shell-v7
-const CACHE_NAME = 'meso-app-shell-v8';
+// Prior cache floors retained for compatibility checks: meso-app-shell-v6 meso-app-shell-v7 meso-app-shell-v8 meso-app-shell-v9
+const CACHE_NAME = 'meso-app-shell-v10';
 const STATIC_ASSETS = [
   '/meso/app.webmanifest',
   '/meso/offline.html',
   '/meso/pwa/install.js',
   '/meso/chat/chat.js',
+  '/meso/chat/conversations.js',
+  '/meso/chat/memory.js',
   '/meso/chat/reply-audio.js',
   '/meso/icons/meso-192.png',
   '/meso/icons/meso-512.png',

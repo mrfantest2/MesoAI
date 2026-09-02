@@ -5,15 +5,18 @@ param(
   [string]$ChatSttRuntime='C:\ProgramData\KhalilDigitalTwin\meso\chat-stt',
   [string]$ChatSttPython='C:\ProgramData\KhalilDigitalTwin\meso\fish-whisper-venv\Scripts\python.exe',
   [string]$ChatTtsRuntime='C:\ProgramData\KhalilDigitalTwin\meso\xtts-bridge',
-  [string]$ChatTtsPython='C:\ProgramData\KhalilDigitalTwin\meso\xtts-venv\Scripts\python.exe'
+  [string]$ChatTtsPython='C:\ProgramData\KhalilDigitalTwin\meso\xtts-venv\Scripts\python.exe',
+  [string]$PhpCli='C:\xampp\php\php.exe'
 )
 $ErrorActionPreference='Stop'
 $web=Join-Path $RepoRoot 'web'
 $chatSttHelper=Join-Path $RepoRoot 'tools\transcribe_chat_audio.py'
 $chatTtsHelper=Join-Path $RepoRoot 'tools\meso_xtts_client.py'
+$memoryBootstrap=Join-Path $RepoRoot 'tools\memory_v1_bootstrap.php'
 $pwaIconGenerator=Join-Path $RepoRoot 'deploy\generate_pwa_icons.ps1'
 $personaSeed=Join-Path $RepoRoot 'deploy\persona-v1.seed.json'
 $personaV2Seed=Join-Path $RepoRoot 'deploy\persona-v2.seed.json'
+$memoryRoot='C:\MesoAI\private\memory-v1'
 $personaDir='C:\MesoAI\private\persona-v1'
 $personaProfile='C:\MesoAI\private\persona-v1\profile.json'
 $personaV2Dir='C:\MesoAI\private\persona-v2'
@@ -25,8 +28,18 @@ $MesoVoiceAllowedRoot='/data/voice/profiles/khalil'
 $MesoVoiceContainerDir='/data/voice/profiles/khalil/meso/refs'
 $MesoVoiceContainerPath='/data/voice/profiles/khalil/meso/refs/meso_ref_01.wav'
 
-foreach($p in @($web,$chatSttHelper,$chatTtsHelper,$pwaIconGenerator,$personaSeed,$personaV2Seed,$ChatSttPython,$ChatTtsPython,$MesoVoiceSource)){if(!(Test-Path -LiteralPath $p)){throw "Required deploy input missing: $p"}}
-New-Item -ItemType Directory -Force -Path $Target,$BackupRoot,$ChatSttRuntime,(Join-Path $ChatSttRuntime 'tmp'),$ChatTtsRuntime,$personaDir,$personaV2Dir|Out-Null
+foreach($p in @($web,$chatSttHelper,$chatTtsHelper,$memoryBootstrap,$pwaIconGenerator,$personaSeed,$personaV2Seed,$ChatSttPython,$ChatTtsPython,$PhpCli,$MesoVoiceSource)){if(!(Test-Path -LiteralPath $p)){throw "Required deploy input missing: $p"}}
+New-Item -ItemType Directory -Force -Path $Target,$BackupRoot,$ChatSttRuntime,(Join-Path $ChatSttRuntime 'tmp'),$ChatTtsRuntime,$memoryRoot,$personaDir,$personaV2Dir|Out-Null
+
+# Memory v1 is a private SQLite store outside htdocs. Bootstrap initializes only
+# schema 0 -> 1, preserves existing data, and rejects any newer schema.
+$mods=& $PhpCli -m
+if($LASTEXITCODE -ne 0 -or -not (@($mods) -match '^pdo_sqlite$')){throw 'Meso Memory v1 requires XAMPP PHP pdo_sqlite'}
+$raw=& $PhpCli $memoryBootstrap
+if($LASTEXITCODE -ne 0){throw 'Meso Memory v1 bootstrap failed'}
+$memoryStatus=($raw -join "`n")|ConvertFrom-Json
+if($memoryStatus.ok -ne $true -or [int]$memoryStatus.schema -ne 1 -or [string]$memoryStatus.memory -ne 'meso-memory-v1'){throw 'Meso Memory v1 bootstrap contract failed'}
+Write-Host 'MESO_MEMORY_V1_READY=true SCHEMA=1'
 
 # Persona v1 remains a safe fallback. Application deploys never overwrite a
 # previously installed private profile.

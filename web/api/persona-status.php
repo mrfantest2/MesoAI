@@ -2,6 +2,7 @@
 declare(strict_types=1);
 require_once dirname(__DIR__) . DIRECTORY_SEPARATOR . 'includes' . DIRECTORY_SEPARATOR . 'chat_auth.php';
 require_once dirname(__DIR__) . DIRECTORY_SEPARATOR . 'includes' . DIRECTORY_SEPARATOR . 'persona.php';
+require_once dirname(__DIR__) . DIRECTORY_SEPARATOR . 'includes' . DIRECTORY_SEPARATOR . 'memory.php';
 
 header('Content-Type: application/json; charset=utf-8');
 header('Cache-Control: no-store, private');
@@ -24,5 +25,6 @@ echo json_encode([
     'grounding'=>(string)($status['grounding']??'off'),
     'source_count'=>(int)($status['source_count']??0),
     'record_count'=>(int)($status['record_count']??0),
-    'memory'=>'off',
+    'memory'=>'meso-memory-v1',
+    'memory_enabled'=>true,
 ], JSON_UNESCAPED_SLASHES|JSON_UNESCAPED_UNICODE);
