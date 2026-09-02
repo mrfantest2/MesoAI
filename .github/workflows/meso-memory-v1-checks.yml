@@ -44,3 +44,50 @@ jobs:
 
       - name: Memory v1 contract
         run: php tests/memory_v1_contract.php
+
+      - name: Memory API files and PHP syntax
+        run: |
+          for path in \
+            web/includes/memory.php \
+            web/includes/chat_auth.php \
+            web/api/conversations.php \
+            web/api/messages.php \
+            web/api/memory.php; do
+            test -f "$path"
+            php -l "$path"
+          done
+
+      - name: Memory API privacy and boundary contract
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          memory = Path('web/includes/memory.php').read_text(encoding='utf-8')
+          auth = Path('web/includes/chat_auth.php').read_text(encoding='utf-8')
+          for marker in ('meso-memory.sqlite','PRAGMA user_version','candidate','verified','rejected','memory_schema_newer_than_app'):
+              assert marker in memory, marker
+          assert 'persona-v2' not in memory
+          assert 'corpus.jsonl' not in memory
+          assert 'meso_chat_state_request_allowed' in auth
+          assert 'meso_chat_require_json_state_auth' in auth
+
+          conversations = Path('web/api/conversations.php').read_text(encoding='utf-8')
+          messages = Path('web/api/messages.php').read_text(encoding='utf-8')
+          memapi = Path('web/api/memory.php').read_text(encoding='utf-8')
+          assert 'meso_chat_require_json_state_auth' in conversations
+          assert 'meso_chat_require_json_auth' in messages
+          assert 'meso_chat_require_json_state_auth' in memapi
+          assert 'conversation_memory' in memapi
+          assert 'before_message_id' in messages
+          assert 'C:\\MesoAI\\private' not in conversations + messages + memapi
+          print('MESO_MEMORY_V1_API_BOUNDARY=PASS')
+          PY
+
+      - name: Reject tracked database files
+        run: |
+          bad="$(git ls-files | grep -Ei '\.(sqlite|db)$' || true)"
+          if [ -n "$bad" ]; then
+            echo "$bad" >&2
+            exit 1
+          fi
+          echo 'MESO_MEMORY_V1_DATABASE_GIT=PASS'
