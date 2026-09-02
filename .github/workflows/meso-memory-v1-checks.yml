@@ -2,7 +2,7 @@ name: MesoAI Memory v1 Checks
 
 on:
   push:
-    branches: [feature/meso-v3-program]
+    branches: [feature/meso-v3-program, feature/meso-v3-program-recovered]
     paths:
       - web/includes/memory.php
       - web/includes/chat_auth.php
@@ -19,6 +19,7 @@ on:
       - tools/memory_v1_bootstrap.php
       - tests/memory_v1_contract.php
       - deploy/deploy_to_xampp.ps1
+      - .github/workflows/deploy-master-pc.yml
       - .gitignore
       - .github/workflows/meso-memory-v1-checks.yml
   pull_request:
@@ -147,6 +148,27 @@ jobs:
           assert "url.pathname === '/meso/chat/'" in sw
           print('MESO_MEMORY_V1_BROWSER_UX=PASS')
           PY
+
+      - name: Memory v1 deployment source contract
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          if (!(Test-Path -LiteralPath 'tools/memory_v1_bootstrap.php' -PathType Leaf)) { throw 'Memory bootstrap helper is missing' }
+          $bootstrap=Get-Content -LiteralPath 'tools/memory_v1_bootstrap.php' -Raw
+          foreach($needle in @('PHP_SAPI','meso_memory_db','meso_memory_schema_version','meso-memory-v1')){
+            if(-not $bootstrap.Contains($needle)){throw "Memory bootstrap marker missing: $needle"}
+          }
+          $deploy=Get-Content -LiteralPath 'deploy/deploy_to_xampp.ps1' -Raw
+          [void][scriptblock]::Create($deploy)
+          foreach($needle in @('C:\MesoAI\private\memory-v1','memory_v1_bootstrap.php','pdo_sqlite','MESO_MEMORY_V1_READY=true')){
+            if(-not $deploy.Contains($needle)){throw "Memory deploy marker missing: $needle"}
+          }
+          if($deploy -match 'Copy-Item.+memory-v1.+htdocs'){throw 'Memory database must never be copied to public web root'}
+          $sourceGate=Get-Content -LiteralPath '.github/workflows/deploy-master-pc.yml' -Raw
+          foreach($needle in @('web/includes/memory.php','web/api/conversations.php','web/api/messages.php','web/api/memory.php','tools/memory_v1_bootstrap.php','MESO_MEMORY_V1_READY=true')){
+            if(-not $sourceGate.Contains($needle)){throw "Canonical source gate missing Memory marker: $needle"}
+          }
+          Write-Host 'MESO_MEMORY_V1_DEPLOY_SOURCE=PASS'
 
       - name: Reject tracked database files
         run: |
