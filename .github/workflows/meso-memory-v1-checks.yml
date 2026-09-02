@@ -1,0 +1,46 @@
+name: MesoAI Memory v1 Checks
+
+on:
+  push:
+    branches: [feature/meso-v3-program]
+    paths:
+      - web/includes/memory.php
+      - web/includes/chat_auth.php
+      - web/includes/persona.php
+      - web/api/chat.php
+      - web/api/conversations.php
+      - web/api/messages.php
+      - web/api/memory.php
+      - web/api/persona-status.php
+      - web/chat/chat.js
+      - web/chat/memory.js
+      - web/chat/index.php
+      - web/sw.js
+      - tools/memory_v1_bootstrap.php
+      - tests/memory_v1_contract.php
+      - deploy/deploy_to_xampp.ps1
+      - .gitignore
+      - .github/workflows/meso-memory-v1-checks.yml
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  memory-v1:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install PHP SQLite CLI support
+        run: |
+          if ! php -m | grep -qi '^pdo_sqlite$'; then
+            sudo apt-get update -qq
+            sudo apt-get install -y -qq php-sqlite3
+          fi
+          php -m | grep -qi '^pdo_sqlite$'
+
+      - name: Memory v1 contract
+        run: php tests/memory_v1_contract.php
