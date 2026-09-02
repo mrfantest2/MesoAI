@@ -101,3 +101,45 @@ function meso_chat_require_json_auth(): void {
     echo json_encode(['ok' => false, 'error' => 'chat_auth_required']);
     exit;
 }
+
+function meso_chat_state_request_allowed(array $server): bool {
+    $contentType = strtolower(trim(explode(';', (string)($server['CONTENT_TYPE'] ?? ''), 2)[0]));
+    if ($contentType !== 'application/json') return false;
+
+    $fetchSite = strtolower(trim((string)($server['HTTP_SEC_FETCH_SITE'] ?? '')));
+    if ($fetchSite === 'cross-site') return false;
+
+    $origin = trim((string)($server['HTTP_ORIGIN'] ?? ''));
+    if ($origin === '') return true;
+    $parts = parse_url($origin);
+    if (!is_array($parts)) return false;
+    $originHost = strtolower((string)($parts['host'] ?? ''));
+    $originScheme = strtolower((string)($parts['scheme'] ?? ''));
+    if ($originHost === '' || !in_array($originScheme, ['http','https'], true)) return false;
+
+    $hostHeader = strtolower(trim((string)($server['HTTP_HOST'] ?? '')));
+    if ($hostHeader === '') return false;
+    $requestAuthority = parse_url('http://' . $hostHeader);
+    if (!is_array($requestAuthority) || strtolower((string)($requestAuthority['host'] ?? '')) !== $originHost) return false;
+
+    $https = strtolower((string)($server['HTTPS'] ?? ''));
+    $forwarded = strtolower((string)($server['HTTP_X_FORWARDED_PROTO'] ?? ''));
+    $requestIsHttps = ($https !== '' && $https !== 'off') || $forwarded === 'https' || (string)($server['SERVER_PORT'] ?? '') === '443';
+    $requestScheme = $requestIsHttps ? 'https' : 'http';
+    if ($originScheme !== $requestScheme) return false;
+
+    $requestPort = isset($requestAuthority['port']) ? (int)$requestAuthority['port'] : (int)($server['SERVER_PORT'] ?? ($requestIsHttps ? 443 : 80));
+    if ($requestPort <= 0) $requestPort = $requestIsHttps ? 443 : 80;
+    $originPort = isset($parts['port']) ? (int)$parts['port'] : ($originScheme === 'https' ? 443 : 80);
+    return $requestPort === $originPort;
+}
+
+function meso_chat_require_json_state_auth(): void {
+    meso_chat_require_json_auth();
+    if (meso_chat_state_request_allowed($_SERVER)) return;
+    http_response_code(403);
+    header('Content-Type: application/json; charset=utf-8');
+    header('Cache-Control: no-store');
+    echo json_encode(['ok'=>false,'error'=>'state_request_rejected']);
+    exit;
+}
