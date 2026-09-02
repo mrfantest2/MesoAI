@@ -27,7 +27,7 @@ $stateServer = [
     'HTTP_ORIGIN'=>'https://fantest.win',
 ];
 expect_true(meso_chat_state_request_allowed($stateServer), 'Valid same-origin JSON state request was rejected');
-expect_true(!meso_chat_state_request_allowed($stateServer + ['HTTP_SEC_FETCH_SITE'=>'cross-site']), 'Cross-site state request was accepted');
+expect_true(!meso_chat_state_request_allowed(array_merge($stateServer, ['HTTP_SEC_FETCH_SITE'=>'cross-site'])), 'Cross-site state request was accepted');
 expect_true(!meso_chat_state_request_allowed(array_merge($stateServer, ['CONTENT_TYPE'=>'text/plain'])), 'Non-JSON state request was accepted');
 expect_true(!meso_chat_state_request_allowed(array_merge($stateServer, ['HTTP_ORIGIN'=>'https://evil.example'])), 'Foreign Origin state request was accepted');
 
