@@ -20,6 +20,10 @@ profiles/*/references/
 .env
 config/local.json
 web/state.local.json
+*.sqlite
+*.sqlite-*
+*.db
+*.db-*
 __pycache__/
 *.pyc
 .venv/
