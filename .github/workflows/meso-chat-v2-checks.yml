@@ -4,17 +4,23 @@ on:
   push:
     branches: [feature/meso-v3-program-recovered]
     paths:
+      - web/includes/memory.php
+      - web/api/chat.php
       - web/chat/index.php
       - web/chat/chat.js
       - web/chat/conversations.js
+      - web/chat/render.js
       - web/sw.js
       - .github/workflows/meso-chat-v2-checks.yml
   pull_request:
     branches: [main]
     paths:
+      - web/includes/memory.php
+      - web/api/chat.php
       - web/chat/index.php
       - web/chat/chat.js
       - web/chat/conversations.js
+      - web/chat/render.js
       - web/sw.js
       - .github/workflows/meso-chat-v2-checks.yml
 
@@ -30,9 +36,12 @@ jobs:
 
       - name: Syntax
         run: |
+          php -l web/includes/memory.php
+          php -l web/api/chat.php
           php -l web/chat/index.php
           node --check web/chat/chat.js
           node --check web/chat/conversations.js
+          node --check web/chat/render.js
           node --check web/sw.js
 
       - name: Persistent conversation navigator contract
@@ -56,4 +65,33 @@ jobs:
           assert '/meso/chat/conversations.js' in sw
           assert "url.pathname.startsWith('/meso/api/')" in sw
           print('MESO_CHAT_V2_CONVERSATIONS=PASS')
+          PY
+
+      - name: Safe rendering and message actions contract
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          render=Path('web/chat/render.js').read_text(encoding='utf-8')
+          chat=Path('web/chat/chat.js').read_text(encoding='utf-8')
+          api=Path('web/api/chat.php').read_text(encoding='utf-8')
+          memory=Path('web/includes/memory.php').read_text(encoding='utf-8')
+          page=Path('web/chat/index.php').read_text(encoding='utf-8')
+          sw=Path('web/sw.js').read_text(encoding='utf-8')
+
+          for marker in ('mesoRenderAssistant','mesoAttachMessageActions','createTextNode','clipboard','Regenerate','Copy'):
+              assert marker in render, marker
+          assert 'innerHTML' not in render
+          assert 'javascript:' not in render.lower()
+          assert "rel='noopener noreferrer'" in render or 'noopener noreferrer' in render
+          assert 'mesoRenderAssistant' in chat
+          assert 'mesoAttachMessageActions' in chat
+          assert 'regenerateMessage' in chat
+          assert 'regenerate_message_id' in chat
+          assert "'user_message_id'" in api
+          assert 'regenerate_message_id' in api
+          assert 'meso_memory_get_message' in api
+          assert 'function meso_memory_get_message' in memory
+          assert '/meso/chat/render.js' in page
+          assert '/meso/chat/render.js' in sw
+          print('MESO_CHAT_V2_RENDER_ACTIONS=PASS')
           PY
