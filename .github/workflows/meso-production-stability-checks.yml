@@ -1,0 +1,70 @@
+name: MesoAI Production Stability Checks
+
+on:
+  push:
+    branches: [hotfix/meso-production-stability-20260903]
+  pull_request:
+    branches: [main]
+    paths:
+      - web/includes/chat_auth.php
+      - web/chat/index.php
+      - web/chat/chat.js
+      - web/chat/conversations.js
+      - web/chat/memory.js
+      - web/sw.js
+      - .github/workflows/meso-production-stability-checks.yml
+
+permissions:
+  contents: read
+
+jobs:
+  production-stability:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Syntax
+        run: |
+          php -l web/includes/chat_auth.php
+          php -l web/chat/index.php
+          node --check web/chat/chat.js
+          node --check web/chat/conversations.js
+          node --check web/chat/memory.js
+          node --check web/sw.js
+
+      - name: Cloudflare proxy state-auth regression
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          auth=Path('web/includes/chat_auth.php').read_text(encoding='utf-8')
+          old="(int)($server['SERVER_PORT'] ?? ($requestIsHttps ? 443 : 80))"
+          new="($requestIsHttps ? 443 : 80)"
+          assert old not in auth, 'backend SERVER_PORT must not override public forwarded HTTPS port'
+          assert new in auth, 'public request port must follow forwarded HTTPS scheme when Host has no explicit port'
+          print('MESO_PROXY_STATE_AUTH=PASS')
+          PY
+
+      - name: Browser reload-loop regression
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          for path in ('web/chat/chat.js','web/chat/conversations.js','web/chat/memory.js'):
+              text=Path(path).read_text(encoding='utf-8')
+              assert 'location.reload()' not in text, f'{path} still auto-reloads on API auth failure'
+              assert 'chat_auth_required' in text or 'response.status===403' in text, f'{path} lost explicit auth-error handling'
+          print('MESO_BROWSER_RELOAD_LOOP=PASS')
+          PY
+
+      - name: Service-worker cache bypass regression
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          page=Path('web/chat/index.php').read_text(encoding='utf-8')
+          sw=Path('web/sw.js').read_text(encoding='utf-8')
+          for asset in ('chat.js','conversations.js','memory.js'):
+              assert f'/meso/chat/{asset}?v=' in page, f'{asset} missing cache-busting query version'
+          assert "meso-app-shell-v11" in sw, 'PWA cache must be v11 or newer'
+          assert 'if (url.search) return true;' in sw, 'query-versioned assets must remain network-only'
+          print('MESO_PWA_STABILITY=PASS')
+          PY
