@@ -2,7 +2,7 @@ name: MesoAI Chat v2 Checks
 
 on:
   push:
-    branches: [feature/meso-v3-program-recovered, feature/meso-chat-v2-task2, feature/meso-chat-v2-streaming]
+    branches: [feature/meso-v3-program-recovered, feature/meso-chat-v2-task2, feature/meso-chat-v2-streaming, feature/meso-v22-live-voice]
     paths:
       - web/includes/memory.php
       - web/includes/chat_runtime.php
@@ -163,7 +163,7 @@ jobs:
           chat=Path('web/chat/chat.js').read_text(encoding='utf-8')
           css=Path('web/chat/chat-v2.css').read_text(encoding='utf-8')
           sw=Path('web/sw.js').read_text(encoding='utf-8')
-          assert 'meso-app-shell-v12' in sw
+          assert 'meso-app-shell-v13' in sw
           assert '/meso/chat/chat-v2.css' in sw
           static=sw.split('const STATIC_ASSETS = [',1)[1].split('];',1)[0]
           for asset in ('/meso/chat/chat.js','/meso/chat/conversations.js','/meso/chat/memory.js','/meso/chat/render.js'):
