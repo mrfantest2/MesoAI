@@ -212,6 +212,14 @@ function meso_memory_map_message(array $row): array {
     ];
 }
 
+function meso_memory_get_message(string $conversationId, string $messageId): ?array {
+    if (!meso_memory_valid_id($conversationId) || !meso_memory_valid_id($messageId)) return null;
+    $stmt = meso_memory_db()->prepare('SELECT seq,id,conversation_id,role,content,created_at,provider,model,persona_version,persona_grounding,persona_evidence_count,voice_profile FROM messages WHERE id=:id AND conversation_id=:conversation_id LIMIT 1');
+    $stmt->execute([':id'=>$messageId, ':conversation_id'=>$conversationId]);
+    $row = $stmt->fetch();
+    return is_array($row) ? meso_memory_map_message($row) : null;
+}
+
 function meso_memory_add_message(string $conversationId, string $role, string $content, array $meta = []): array {
     $conversation = meso_memory_get_conversation($conversationId);
     if ($conversation === null) throw new InvalidArgumentException('conversation_not_found');
