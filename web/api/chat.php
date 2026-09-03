@@ -120,14 +120,28 @@ if(!is_array($body)) fail_json(400,'invalid_json');
 
 $conversationId=strtolower(trim((string)($body['conversation_id']??'')));
 if(!meso_memory_valid_id($conversationId)) fail_json(400,'invalid_conversation_id');
-$message=trim((string)($body['message']??''));
-if($message===''||mb_strlen($message)>8000) fail_json(400,'invalid_message');
+$incomingMessage=trim((string)($body['message']??''));
+$regenerateMessageId=strtolower(trim((string)($body['regenerate_message_id']??'')));
+$sourceUserMessage=null;
+$message='';
 
 try {
     $conversation=meso_memory_get_conversation($conversationId);
     if($conversation===null) throw new InvalidArgumentException('conversation_not_found');
     if(($conversation['archived']??false)===true) throw new InvalidArgumentException('conversation_archived');
-    $recent=meso_memory_list_messages($conversationId,12,null)['items'];
+
+    if($regenerateMessageId!==''){
+        if(!meso_memory_valid_id($regenerateMessageId)) throw new InvalidArgumentException('invalid_regenerate_message_id');
+        $sourceUserMessage=meso_memory_get_message($conversationId,$regenerateMessageId);
+        if($sourceUserMessage===null) throw new InvalidArgumentException('regenerate_message_not_found');
+        if((string)($sourceUserMessage['role']??'')!=='user') throw new InvalidArgumentException('regenerate_message_not_user');
+        $message=(string)$sourceUserMessage['content'];
+        $recent=meso_memory_list_messages($conversationId,12,$regenerateMessageId)['items'];
+    } else {
+        $message=$incomingMessage;
+        if($message===''||mb_strlen($message)>8000) throw new InvalidArgumentException('invalid_message');
+        $recent=meso_memory_list_messages($conversationId,12,null)['items'];
+    }
     $memoryContext=meso_memory_context($conversationId,$message,6);
 } catch(Throwable $e) {
     meso_chat_memory_fail($e);
@@ -146,10 +160,14 @@ $memoryBlock=trim((string)($memoryContext['instructions']??''));
 if($memoryBlock!=='') $instructions.="\n\n".$memoryBlock;
 
 try {
-    $userMessage=meso_memory_add_message($conversationId,'user',$message);
-    $explicitRemember=meso_memory_extract_explicit_remember($message);
-    if($explicitRemember!==null){
-        meso_memory_create_item($conversationId,$userMessage['id'],'fact',$explicitRemember,'verified','user-explicit-chat');
+    if($sourceUserMessage!==null){
+        $userMessage=$sourceUserMessage;
+    } else {
+        $userMessage=meso_memory_add_message($conversationId,'user',$message);
+        $explicitRemember=meso_memory_extract_explicit_remember($message);
+        if($explicitRemember!==null){
+            meso_memory_create_item($conversationId,$userMessage['id'],'fact',$explicitRemember,'verified','user-explicit-chat');
+        }
     }
 } catch(Throwable $e) {
     meso_chat_memory_fail($e);
@@ -157,6 +175,8 @@ try {
 
 $resultBase=[
     'conversation_id'=>$conversationId,
+    'user_message_id'=>(string)$userMessage['id'],
+    'regenerated_from'=>$sourceUserMessage!==null?(string)$sourceUserMessage['id']:null,
     'memory'=>'meso-memory-v1',
     'memory_items_used'=>(int)($memoryContext['items_used']??0),
     'persona'=>($persona['enabled']??false)?(string)($persona['version']??'off'):'off',
