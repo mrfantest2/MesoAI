@@ -29,27 +29,43 @@ jobs:
         run: |
           set -euo pipefail
           test -f deploy/deploy_to_xampp.ps1
+          test -f deploy/promote_voice_v22.ps1
           test -f web/chat/index.php
           test -f web/chat/chat.js
+          test -f web/chat/chat-v2.css
+          test -f web/chat/render.js
           test -f web/chat/memory.js
           test -f web/chat/reply-audio.js
           test -f web/includes/memory.php
+          test -f web/includes/chat_runtime.php
           test -f web/api/chat.php
+          test -f web/api/chat-stream.php
           test -f web/api/conversations.php
           test -f web/api/messages.php
           test -f web/api/memory.php
           test -f web/api/tts.php
+          test -f web/api/tts-audio.php
           test -f web/api/transcribe.php
           test -f tools/memory_v1_bootstrap.php
+          test -f tools/meso_xtts_client.py
           test -f web/app.webmanifest
           test -f web/sw.js
           grep -q 'application/manifest+json' web/.htaccess
           grep -q 'beforeinstallprompt' web/pwa/install.js
           grep -q "url.pathname.startsWith('/meso/api/')" web/sw.js
-          grep -q 'meso-memory-v1' web/api/chat.php
+          grep -q 'chat_runtime.php' web/api/chat.php
+          grep -q 'chat_runtime.php' web/api/chat-stream.php
+          grep -q 'meso_memory_context' web/includes/chat_runtime.php
+          grep -q 'meso_memory_list_messages' web/includes/chat_runtime.php
+          grep -q 'meso-memory-v1' tools/memory_v1_bootstrap.php
           grep -q 'MESO_MEMORY_V1_READY=true' deploy/deploy_to_xampp.ps1
+          grep -q 'meso-app-shell-v13' web/sw.js
+          grep -q 'meso-v2.2' tools/meso_xtts_client.py
           echo 'MESO_MAIN_SOURCE_GATE=true'
           echo 'MESO_MEMORY_V1_SOURCE_GATE=true'
+          echo 'MESO_CHAT_V2_SOURCE_GATE=true'
+          echo 'MESO_VOICE_V22_SOURCE_GATE=true'
+          echo 'MESO_PWA_V13_SOURCE_GATE=true'
           echo 'MASTER_PC_DEPLOY_OWNER=Khalil-Digital-Twin/mesoai-deploy-bridge'
           echo 'MASTER_PC_SELF_HOSTED_RUNNER_REQUIRED=false'
           echo 'RUNPOD_STARTED=false'
@@ -59,4 +75,5 @@ jobs:
         run: |
           echo 'MesoAI is the canonical product source.'
           echo 'MASTER-PC deployment is intentionally executed only through the private KDT bridge.'
-          echo 'Memory v1 persists only under the private MesoAI runtime root and is never copied into htdocs.'
+          echo 'Memory v1 and Persona data persist only under the private MesoAI runtime root and are never copied into htdocs.'
+          echo 'Voice v2.2 promotion remains explicit-only; source deployment does not choose a blind candidate.'
