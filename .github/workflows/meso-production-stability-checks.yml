@@ -7,8 +7,11 @@ on:
     branches: [main]
     paths:
       - web/includes/chat_auth.php
+      - web/includes/chat_runtime.php
       - web/api/chat.php
+      - web/api/chat-stream.php
       - web/chat/chat.js
+      - web/chat/chat-v2.css
       - web/chat/conversations.js
       - web/chat/memory.js
       - web/sw.js
@@ -27,7 +30,9 @@ jobs:
       - name: Syntax
         run: |
           php -l web/includes/chat_auth.php
+          php -l web/includes/chat_runtime.php
           php -l web/api/chat.php
+          php -l web/api/chat-stream.php
           node --check web/chat/chat.js
           node --check web/chat/conversations.js
           node --check web/chat/memory.js
@@ -62,9 +67,10 @@ jobs:
           python3 - <<'PY'
           from pathlib import Path
           chat=Path('web/api/chat.php').read_text(encoding='utf-8')
-          assert "'keep_alive'=>-1" in chat, 'Ollama request must keep the dedicated Meso model loaded'
-          ollama_call=chat.split("if($provider==='ollama')",1)[1].split("$reply=",1)[0]
-          assert ',\n        300\n    );' in ollama_call, 'Ollama provider timeout must allow slow cold loads'
+          stream=Path('web/api/chat-stream.php').read_text(encoding='utf-8')
+          for name,text in [('JSON chat',chat),('SSE chat',stream)]:
+              assert "'keep_alive'=>-1" in text, f'{name} must keep the dedicated Meso model loaded'
+              assert '300' in text, f'{name} must allow slow local Ollama startup/recovery'
           print('MESO_OLLAMA_COLDSTART=PASS')
           PY
 
@@ -73,9 +79,11 @@ jobs:
           python3 - <<'PY'
           from pathlib import Path
           sw=Path('web/sw.js').read_text(encoding='utf-8')
-          assert "meso-app-shell-v11" in sw, 'PWA cache must be v11 or newer'
-          for asset in ('/meso/chat/chat.js','/meso/chat/conversations.js','/meso/chat/memory.js'):
-              assert asset not in sw.split('const STATIC_ASSETS = [',1)[1].split('];',1)[0], f'{asset} must not be cached'
+          assert "meso-app-shell-v12" in sw, 'PWA cache must be v12 or newer'
+          static=sw.split('const STATIC_ASSETS = [',1)[1].split('];',1)[0]
+          for asset in ('/meso/chat/chat.js','/meso/chat/conversations.js','/meso/chat/memory.js','/meso/chat/render.js'):
+              assert asset not in static, f'{asset} must not be cached'
           assert 'if (!STATIC_ASSETS.includes(url.pathname)) { event.respondWith(fetch(request)); return; }' in sw, 'non-static chat scripts must stay network-only'
+          assert "url.pathname.startsWith('/meso/api/')" in sw
           print('MESO_PWA_STABILITY=PASS')
           PY
