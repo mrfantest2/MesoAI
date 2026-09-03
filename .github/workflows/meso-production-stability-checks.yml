@@ -2,7 +2,7 @@ name: MesoAI Production Stability Checks
 
 on:
   push:
-    branches: [hotfix/meso-production-stability-20260903, hotfix/meso-ollama-coldstart-502]
+    branches: [hotfix/meso-production-stability-20260903, hotfix/meso-ollama-coldstart-502, feature/meso-v22-live-voice]
   pull_request:
     branches: [main]
     paths:
@@ -14,6 +14,7 @@ on:
       - web/chat/chat-v2.css
       - web/chat/conversations.js
       - web/chat/memory.js
+      - web/chat/reply-audio.js
       - web/sw.js
       - .github/workflows/meso-production-stability-checks.yml
 
@@ -36,6 +37,7 @@ jobs:
           node --check web/chat/chat.js
           node --check web/chat/conversations.js
           node --check web/chat/memory.js
+          node --check web/chat/reply-audio.js
           node --check web/sw.js
 
       - name: Cloudflare proxy state-auth regression
@@ -55,7 +57,7 @@ jobs:
           python3 - <<'PY'
           from pathlib import Path
           bad="if(response.status===403){location.reload()"
-          for path in ('web/chat/chat.js','web/chat/conversations.js','web/chat/memory.js'):
+          for path in ('web/chat/chat.js','web/chat/conversations.js','web/chat/memory.js','web/chat/reply-audio.js'):
               text=Path(path).read_text(encoding='utf-8')
               assert bad not in text, f'{path} still reloads the page on API 403'
               assert 'response.status===403' in text, f'{path} lost explicit auth-error handling'
@@ -79,7 +81,7 @@ jobs:
           python3 - <<'PY'
           from pathlib import Path
           sw=Path('web/sw.js').read_text(encoding='utf-8')
-          assert "meso-app-shell-v12" in sw, 'PWA cache must be v12 or newer'
+          assert "meso-app-shell-v13" in sw, 'PWA cache must be v13 or newer'
           static=sw.split('const STATIC_ASSETS = [',1)[1].split('];',1)[0]
           for asset in ('/meso/chat/chat.js','/meso/chat/conversations.js','/meso/chat/memory.js','/meso/chat/render.js'):
               assert asset not in static, f'{asset} must not be cached'

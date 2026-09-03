@@ -1,0 +1,127 @@
+name: MesoAI Voice v2.2 Live Checks
+
+on:
+  push:
+    branches: [feature/meso-v22-live-voice]
+    paths:
+      - tools/meso_xtts_client.py
+      - tools/meso_xtts_sweep_client.py
+      - deploy/promote_voice_v22.ps1
+      - web/api/tts.php
+      - web/api/tts-audio.php
+      - web/api/transcribe.php
+      - web/chat/chat.js
+      - web/chat/reply-audio.js
+      - web/sw.js
+      - .github/workflows/meso-voice-v22-live-checks.yml
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  voice-v22-live:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Syntax
+        run: |
+          python3 -m py_compile tools/meso_xtts_client.py tools/meso_xtts_sweep_client.py
+          php -l web/api/tts.php
+          php -l web/api/tts-audio.php
+          php -l web/api/transcribe.php
+          node --check web/chat/chat.js
+          node --check web/chat/reply-audio.js
+          node --check web/sw.js
+
+      - name: Promotion PowerShell syntax
+        shell: pwsh
+        run: |
+          $text=Get-Content -LiteralPath 'deploy/promote_voice_v22.ps1' -Raw
+          [void][scriptblock]::Create($text)
+          Write-Host 'MESO_VOICE_V22_PROMOTION_SYNTAX=PASS'
+
+      - name: Explicit blind promotion contract
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          promote=Path('deploy/promote_voice_v22.ps1').read_text(encoding='utf-8')
+          for marker in (
+              '[Parameter(Mandatory=$true)][ValidateRange(0,19)][int]$Batch',
+              "[Parameter(Mandatory=$true)][ValidateSet('A','B','C','D','E')][string]$Label",
+              r'C:\MesoAI\private\voice-lab-v22\sweep.json',
+              '/data/voice/profiles/khalil/meso-v2.2/refs/meso_v22_ref_01.wav',
+              "'profile':'meso-v2.2'",
+              "'synthesis_allowed':True",
+              "'source':'blind-v2.2-selection'",
+              'MESO_VOICE_V22_PROMOTED=true',
+          ):
+              assert marker in promote, marker
+          assert 'votes.jsonl' not in promote.lower(), 'promotion must never infer a winner from votes'
+          assert 'choice' not in promote.lower(), 'promotion must require explicit Batch+Label, not a stored choice'
+          print('MESO_VOICE_V22_EXPLICIT_PROMOTION=PASS')
+          PY
+
+      - name: Runtime profile precedence contract
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          helper=Path('tools/meso_xtts_client.py').read_text(encoding='utf-8')
+          for marker in (
+              'MESO_V22_PROFILE',
+              '/data/voice/profiles/khalil/meso-v2.2/profile.json',
+              "load_refs(v22,'meso-v2.2',1,1)",
+              "load_refs(v2,'meso-v2',2,",
+              "profile not in {\"meso-a\", \"meso-v2\", \"meso-v2.2\"}",
+          ):
+              assert marker in helper, marker
+          assert helper.index("load_refs(v22,'meso-v2.2',1,1)") < helper.index("load_refs(v2,'meso-v2',2,"), 'v2.2 must only take precedence after explicit profile creation'
+          print('MESO_VOICE_V22_RUNTIME_PRECEDENCE=PASS')
+          PY
+
+      - name: TTS and browser v2.2 contract
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          tts=Path('web/api/tts.php').read_text(encoding='utf-8')
+          media=Path('web/api/tts-audio.php').read_text(encoding='utf-8')
+          reply=Path('web/chat/reply-audio.js').read_text(encoding='utf-8')
+          for text,name in ((tts,'tts.php'),(media,'tts-audio.php'),(reply,'reply-audio.js')):
+              assert 'meso-v2.2' in text, f'{name} missing v2.2 support'
+          assert 'location.reload()' not in reply, 'reply audio must never revive the auth refresh loop'
+          assert "response.status===403" in reply
+          assert 'Meso Voice v2.2' in reply
+          print('MESO_VOICE_V22_REPLY_AUDIO=PASS')
+          PY
+
+      - name: Push-to-talk local STT contract
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          chat=Path('web/chat/chat.js').read_text(encoding='utf-8')
+          stt=Path('web/api/transcribe.php').read_text(encoding='utf-8')
+          for marker in ('MediaRecorder','navigator.mediaDevices.getUserMedia','startRecording','stopRecording','/meso/api/transcribe.php','await sendText()'):
+              assert marker in chat, marker
+          for marker in ('meso_chat_require_json_auth','chat-stt','transcribe_chat_audio.py'):
+              assert marker in stt, marker
+          compact=''.join(stt.split())
+          assert "'provider_upload'=>false" in compact, 'STT responses must explicitly state that microphone audio is not uploaded to a provider'
+          assert 'curl_' not in stt, 'STT endpoint must remain local and must not upload microphone media to a provider'
+          print('MESO_PUSH_TO_TALK_LOCAL=PASS')
+          PY
+
+      - name: PWA v13 voice cache contract
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          sw=Path('web/sw.js').read_text(encoding='utf-8')
+          assert 'meso-app-shell-v13' in sw
+          static=sw.split('const STATIC_ASSETS = [',1)[1].split('];',1)[0]
+          assert '/meso/chat/reply-audio.js' in static
+          assert '/meso/chat/chat.js' not in static
+          assert "url.pathname.startsWith('/meso/api/')" in sw
+          print('MESO_VOICE_V22_PWA_V13=PASS')
+          PY

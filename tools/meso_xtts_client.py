@@ -13,6 +13,7 @@ from pathlib import Path
 
 XTTS_BASE = "http://127.0.0.1:8020"
 CONTAINER = "khalil-xtts"
+MESO_V22_PROFILE = "/data/voice/profiles/khalil/meso-v2.2/profile.json"
 MESO_V2_PROFILE = "/data/voice/profiles/khalil/meso-v2/profile.json"
 MESO_A_REFERENCE = "/data/voice/profiles/khalil/meso/refs/meso_ref_01.wav"
 XTTS_ALLOWED_ROOT = "/data/voice/profiles/khalil"
@@ -57,6 +58,7 @@ def meso_references() -> tuple[list[str], str]:
     code = f'''import json
 from pathlib import Path
 root=Path({XTTS_ALLOWED_ROOT!r}).resolve()
+v22=Path({MESO_V22_PROFILE!r}).resolve()
 v2=Path({MESO_V2_PROFILE!r}).resolve()
 fallback=Path({MESO_A_REFERENCE!r}).resolve()
 def valid(p):
@@ -65,25 +67,30 @@ def valid(p):
         return p.is_file() and p.stat().st_size > 0
     except Exception:
         return False
-refs=[]
-profile='meso-a'
-if v2.is_file():
+def load_refs(profile_path, expected_profile, minimum, maximum):
     try:
-        data=json.loads(v2.read_text(encoding='utf-8'))
-        raw=data.get('references') if isinstance(data,dict) else None
-        if isinstance(raw,list):
-            for item in raw[:{MAX_MESO_REFERENCES}]:
-                value=item.get('path') if isinstance(item,dict) else item
-                if isinstance(value,str) and value.strip():
-                    p=Path(value.strip())
-                    if valid(p): refs.append(str(p.resolve()))
-        if 2 <= len(refs) <= {MAX_MESO_REFERENCES}: profile='meso-v2'
-        else: refs=[]
-    except Exception:
+        if not profile_path.is_file(): return []
+        data=json.loads(profile_path.read_text(encoding='utf-8'))
+        if not isinstance(data,dict) or data.get('profile') != expected_profile or data.get('synthesis_allowed') is not True: return []
+        raw=data.get('references')
+        if not isinstance(raw,list): return []
         refs=[]
+        for item in raw[:maximum]:
+            value=item.get('path') if isinstance(item,dict) else item
+            if isinstance(value,str) and value.strip():
+                p=Path(value.strip())
+                if valid(p): refs.append(str(p.resolve()))
+        return refs if minimum <= len(refs) <= maximum else []
+    except Exception:
+        return []
+refs=load_refs(v22,'meso-v2.2',1,1)
+profile='meso-v2.2' if refs else 'meso-a'
+if not refs:
+    refs=load_refs(v2,'meso-v2',2,{MAX_MESO_REFERENCES})
+    if refs: profile='meso-v2'
 if not refs:
     if not valid(fallback): raise SystemExit(3)
-    refs=[str(fallback)]
+    refs=[str(fallback.resolve())]
 print(json.dumps({{'profile':profile,'references':refs}}))'''
     completed = subprocess.run(
         [docker, "exec", CONTAINER, "python", "-c", code],
@@ -100,7 +107,11 @@ print(json.dumps({{'profile':profile,'references':refs}}))'''
         profile = result["profile"]
     except (json.JSONDecodeError, KeyError, TypeError):
         fail("meso_reference_invalid")
-    if profile not in {"meso-a", "meso-v2"} or not isinstance(refs, list) or not (1 <= len(refs) <= MAX_MESO_REFERENCES):
+    if profile not in {"meso-a", "meso-v2", "meso-v2.2"} or not isinstance(refs, list) or not (1 <= len(refs) <= MAX_MESO_REFERENCES):
+        fail("meso_reference_invalid")
+    if profile == "meso-v2.2" and len(refs) != 1:
+        fail("meso_reference_invalid")
+    if profile == "meso-v2" and not (2 <= len(refs) <= MAX_MESO_REFERENCES):
         fail("meso_reference_invalid")
     return [str(v) for v in refs], profile
 

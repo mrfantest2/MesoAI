@@ -1,0 +1,31 @@
+name: MesoAI Persona Token Checks
+
+on:
+  push:
+    branches: [feature/meso-v22-live-voice]
+    paths:
+      - web/includes/persona.php
+      - tests/persona_numeric_token_contract.php
+      - .github/workflows/meso-persona-token-checks.yml
+  pull_request:
+    branches: [main]
+    paths:
+      - web/includes/persona.php
+      - tests/persona_numeric_token_contract.php
+      - .github/workflows/meso-persona-token-checks.yml
+
+permissions:
+  contents: read
+
+jobs:
+  persona-numeric-token:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: PHP syntax
+        run: |
+          php -l web/includes/persona.php
+          php -l tests/persona_numeric_token_contract.php
+      - name: Numeric token regression
+        run: php tests/persona_numeric_token_contract.php

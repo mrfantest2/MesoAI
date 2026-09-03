@@ -95,7 +95,7 @@ try {
     if ($exitCode !== 0 || !is_file($tempPath)) throw new RuntimeException('synthesis_failed');
     $meta=json_decode(trim($stdout), true);
     $voiceProfile=is_array($meta) ? (string)($meta['profile'] ?? '') : '';
-    if (!is_array($meta) || ($meta['ok'] ?? false)!==true || ($meta['engine'] ?? '')!=='xtts-v2' || !in_array($voiceProfile,['meso-a','meso-v2'],true) || ($meta['format'] ?? '')!=='mp3') throw new RuntimeException('unexpected_voice_profile');
+    if (!is_array($meta) || ($meta['ok'] ?? false)!==true || ($meta['engine'] ?? '')!=='xtts-v2' || !in_array($voiceProfile,['meso-a','meso-v2','meso-v2.2'],true) || ($meta['format'] ?? '')!=='mp3') throw new RuntimeException('unexpected_voice_profile');
     $size=filesize($tempPath);
     if ($size===false || $size<1024 || $size>8388608) throw new RuntimeException('invalid_mp3_size');
     $fh=fopen($tempPath,'rb'); if(!$fh) throw new RuntimeException('mp3_open_failed'); $head=fread($fh,3); fclose($fh);
