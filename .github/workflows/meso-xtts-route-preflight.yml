@@ -5,11 +5,14 @@ on:
     branches: [main]
     paths:
       - web/api/chat.php
+      - web/api/chat-stream.php
       - web/api/persona-status.php
       - web/api/tts.php
       - web/api/tts-audio.php
+      - web/includes/chat_runtime.php
       - web/includes/persona.php
       - web/chat/chat.js
+      - web/chat/chat-v2.css
       - web/chat/index.php
       - web/chat/reply-audio.js
       - web/sw.js
@@ -65,6 +68,9 @@ jobs:
         run: |
           $ErrorActionPreference='Stop'
           $chat=Get-Content -LiteralPath './web/api/chat.php' -Raw
+          $stream=Get-Content -LiteralPath './web/api/chat-stream.php' -Raw
+          $runtime=Get-Content -LiteralPath './web/includes/chat_runtime.php' -Raw
+          $chatServer=$chat+$stream+$runtime
           $personaStatus=Get-Content -LiteralPath './web/api/persona-status.php' -Raw
           $tts=Get-Content -LiteralPath './web/api/tts.php' -Raw
           $audio=Get-Content -LiteralPath './web/api/tts-audio.php' -Raw
@@ -87,12 +93,15 @@ jobs:
           foreach($needle in @('C:\MesoAI\private\persona-v2\profile.json','C:\MesoAI\private\persona-v2\corpus.jsonl','MESO_PERSONA_V2_DETECTED=true')){if(-not $deploy.Contains($needle)){throw "Deploy missing private Persona v2 marker: $needle"}}
           if($deploy -match 'Copy-Item.+persona-v2.+htdocs'){throw 'Private Persona v2 data must never be copied into web root'}
 
-          foreach($needle in @("require_once dirname(__DIR__) . DIRECTORY_SEPARATOR . 'includes' . DIRECTORY_SEPARATOR . 'persona.php'",'meso_persona_context($message)')){if(-not $chat.Contains($needle)){throw "Chat missing Persona v2 integration: $needle"}}
-          foreach($pattern in @("'persona'\s*=>","'persona_sources'\s*=>","'persona_grounding'\s*=>","'persona_evidence'\s*=>")){if($chat -notmatch $pattern){throw "Chat missing Persona v2 response field: $pattern"}}
-          if($chat.Contains("'persona'=>($persona['enabled']??false)?'meso-v1':'off'")){throw 'Chat still hard-codes Persona v1'}
+          if(-not $chat.Contains('chat_runtime.php')){throw 'JSON chat must consume shared chat runtime'}
+          if(-not $stream.Contains('chat_runtime.php')){throw 'SSE chat must consume shared chat runtime'}
+          foreach($needle in @("require_once __DIR__ . DIRECTORY_SEPARATOR . 'persona.php'",'meso_persona_context($message)')){if(-not $runtime.Contains($needle)){throw "Shared runtime missing Persona v2 integration: $needle"}}
+          foreach($pattern in @("'persona'\s*=>","'persona_sources'\s*=>","'persona_grounding'\s*=>","'persona_evidence'\s*=>")){if($runtime -notmatch $pattern){throw "Shared runtime missing Persona v2 response field: $pattern"}}
+          if($chatServer.Contains("'persona'=>($persona['enabled']??false)?'meso-v1':'off'")){throw 'Chat stack still hard-codes Persona v1'}
 
           foreach($needle in @('meso_chat_require_json_auth','meso_persona_status','record_count','source_count')){if(-not $personaStatus.Contains($needle)){throw "Persona status endpoint missing marker: $needle"}}
-          foreach($needle in @('body.persona','persona_evidence','evidence-retrieval','persona-status.php','applyPersonaState')){if(-not $chatJs.Contains($needle)){throw "chat.js missing Persona v2 marker: $needle"}}
+          foreach($needle in @('persona_evidence','evidence-retrieval','persona-status.php','applyPersonaState')){if(-not $chatJs.Contains($needle)){throw "chat.js missing Persona v2 marker: $needle"}}
+          if(($chatJs -notmatch 'body\?\.persona') -and ($chatJs -notmatch 'data\?\.persona') -and ($chatJs -notmatch 'body\.persona')){throw 'chat.js no longer consumes Persona metadata'}
           if($chatJs.Contains("body.persona==='meso-v1'")){throw 'chat.js still hard-codes meso-v1'}
           foreach($needle in @('Persona','Memory','MESO v1')){if(-not $index.Contains($needle)){throw "Base chat UI lost required state row: $needle"}}
 
@@ -107,14 +116,16 @@ jobs:
           foreach($needle in @("!['meso-a', 'meso-v2'].includes(profile)",'audio_url','tts-audio.php','playPreparedXtts','Meso voice ready')){if(-not $replyJs.Contains($needle)){throw "Missing Voice browser marker: $needle"}}
 
           $sw=Get-Content -LiteralPath './web/sw.js' -Raw
-          if(-not $sw.Contains('meso-app-shell-v8')){throw 'Persona v2 must advance PWA cache to v8'}
+          if(-not $sw.Contains('meso-app-shell-v12')){throw 'Chat v2 must retain PWA v12'}
           Write-Host 'MESO_PERSONA_V2_WHATSAPP_STATIC=PASS'
 
       - name: PHP syntax check
         run: |
           php -l web/api/chat.php
+          php -l web/api/chat-stream.php
           php -l web/api/persona-status.php
           php -l web/api/tts.php
           php -l web/api/tts-audio.php
+          php -l web/includes/chat_runtime.php
           php -l web/includes/persona.php
           php -l web/chat/index.php

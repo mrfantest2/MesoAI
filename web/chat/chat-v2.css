@@ -1,0 +1,24 @@
+html,body{overflow-x:hidden}
+.messages,.chat,.main{min-width:0}
+.messageBody{white-space:normal;overflow-wrap:anywhere}
+.messageBody pre{max-width:100%;overflow:auto;-webkit-overflow-scrolling:touch}
+.messageBody a{overflow-wrap:anywhere}
+.top button,.composer button{min-height:44px}
+.stopGeneration{border:1px solid #8b4755!important;background:#351c23!important;color:#ffb4be!important;min-width:82px}
+.stopGeneration[hidden]{display:none!important}
+.composeRow.chatV2Generating{grid-template-columns:auto minmax(0,1fr) auto auto}
+.msg.streaming .messageBody{white-space:pre-wrap}
+.msg.streaming{border-color:#4f4264}
+.msg.streamError{border-color:#693b45}
+@media(max-width:760px){
+  .chat{width:100%;max-width:100%;overflow-x:hidden}
+  .composer{bottom:0;padding-bottom:calc(10px + env(safe-area-inset-bottom))}
+  .composeRow.chatV2Generating{grid-template-columns:48px minmax(0,1fr)}
+  .composeRow.chatV2Generating .send,.composeRow.chatV2Generating .stopGeneration{grid-column:auto;width:100%}
+  .composeRow.chatV2Generating .send{grid-column:1/2}
+  .composeRow.chatV2Generating .stopGeneration{grid-column:2/3}
+  .msg{max-width:94%}
+  .messageActions{flex-wrap:wrap}
+  .messageAction{min-height:40px;padding:8px 10px}
+}
+@media(pointer:coarse){.top button,.composer button,.memoryClear,.drawerNew{min-height:44px}}
