@@ -7,7 +7,6 @@ on:
     branches: [main]
     paths:
       - web/includes/chat_auth.php
-      - web/chat/index.php
       - web/chat/chat.js
       - web/chat/conversations.js
       - web/chat/memory.js
@@ -27,7 +26,6 @@ jobs:
       - name: Syntax
         run: |
           php -l web/includes/chat_auth.php
-          php -l web/chat/index.php
           node --check web/chat/chat.js
           node --check web/chat/conversations.js
           node --check web/chat/memory.js
@@ -57,15 +55,14 @@ jobs:
           print('MESO_BROWSER_RELOAD_LOOP=PASS')
           PY
 
-      - name: Service-worker cache bypass regression
+      - name: Service-worker network-only chat scripts regression
         run: |
           python3 - <<'PY'
           from pathlib import Path
-          page=Path('web/chat/index.php').read_text(encoding='utf-8')
           sw=Path('web/sw.js').read_text(encoding='utf-8')
-          for asset in ('chat.js','conversations.js','memory.js'):
-              assert f'/meso/chat/{asset}?v=' in page, f'{asset} missing cache-busting query version'
           assert "meso-app-shell-v11" in sw, 'PWA cache must be v11 or newer'
-          assert 'if (url.search) return true;' in sw, 'query-versioned assets must remain network-only'
+          for asset in ('/meso/chat/chat.js','/meso/chat/conversations.js','/meso/chat/memory.js'):
+              assert asset not in sw.split('const STATIC_ASSETS = [',1)[1].split('];',1)[0], f'{asset} must not be cached'
+          assert 'if (!STATIC_ASSETS.includes(url.pathname)) { event.respondWith(fetch(request)); return; }' in sw, 'non-static chat scripts must stay network-only'
           print('MESO_PWA_STABILITY=PASS')
           PY
