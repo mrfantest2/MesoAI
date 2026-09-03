@@ -42,10 +42,12 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Existing syntax
+      - name: Syntax
         run: |
           php -l web/includes/memory.php
+          php -l web/includes/chat_runtime.php
           php -l web/api/chat.php
+          php -l web/api/chat-stream.php
           php -l web/chat/index.php
           php -l tests/chat_v2_regenerate_contract.php
           node --check web/chat/chat.js
@@ -83,6 +85,7 @@ jobs:
           render=Path('web/chat/render.js').read_text(encoding='utf-8')
           chat=Path('web/chat/chat.js').read_text(encoding='utf-8')
           api=Path('web/api/chat.php').read_text(encoding='utf-8')
+          runtime=Path('web/includes/chat_runtime.php').read_text(encoding='utf-8')
           memory=Path('web/includes/memory.php').read_text(encoding='utf-8')
           page=Path('web/chat/index.php').read_text(encoding='utf-8')
           for marker in ('mesoRenderAssistant','mesoAttachMessageActions','createTextNode','clipboard','Regenerate','Copy'):
@@ -94,9 +97,9 @@ jobs:
           assert 'mesoAttachMessageActions' in chat
           assert 'regenerateMessage' in chat
           assert 'regenerate_message_id' in chat
-          assert "'user_message_id'" in api
-          assert 'regenerate_message_id' in api
-          assert 'meso_memory_get_message' in api
+          assert "'user_message_id'" in api or 'user_message_id' in runtime
+          assert 'regenerate_message_id' in api or 'regenerate_message_id' in runtime
+          assert 'meso_memory_get_message' in runtime
           assert 'function meso_memory_get_message' in memory
           assert '/meso/chat/render.js' in page
           print('MESO_CHAT_V2_RENDER_ACTIONS=PASS')
@@ -106,17 +109,15 @@ jobs:
         run: |
           python3 - <<'PY'
           from pathlib import Path
-          runtime_path=Path('web/includes/chat_runtime.php')
-          assert runtime_path.is_file(), 'chat_runtime.php missing'
-          runtime=runtime_path.read_text(encoding='utf-8')
+          runtime=Path('web/includes/chat_runtime.php').read_text(encoding='utf-8')
           api=Path('web/api/chat.php').read_text(encoding='utf-8')
           for marker in ('meso_chat_provider_config','meso_chat_prepare_request','meso_chat_context_for','meso_chat_persist_user_turn','meso_chat_persist_assistant_turn','meso_chat_openai_extract_text'):
               assert marker in runtime, marker
               assert marker in api, f'chat.php does not consume {marker}'
           for duplicate in ('function provider_config','function rate_limit_or_fail','function curl_json','function extract_openai_text'):
               assert duplicate not in api, duplicate
-          assert "'keep_alive'=>-1" in runtime
-          assert '300' in runtime
+          assert "'keep_alive'=>-1" in api
+          assert '300' in api
           assert 'MESO_PRIVATE' not in api
           print('MESO_CHAT_V2_RUNTIME=PASS')
           PY
@@ -125,14 +126,13 @@ jobs:
         run: |
           python3 - <<'PY'
           from pathlib import Path
-          stream_path=Path('web/api/chat-stream.php')
-          assert stream_path.is_file(), 'chat-stream.php missing'
-          stream=stream_path.read_text(encoding='utf-8')
+          stream=Path('web/api/chat-stream.php').read_text(encoding='utf-8')
           runtime=Path('web/includes/chat_runtime.php').read_text(encoding='utf-8')
           for marker in ('text/event-stream','meso_chat_require_json_state_auth','meso_chat_sse_event','CURLOPT_WRITEFUNCTION','connection_aborted','meso_chat_persist_assistant_turn'):
               assert marker in stream, marker
           assert "'stream'=>true" in stream
           assert "'keep_alive'=>-1" in stream
+          assert '300' in stream
           assert 'Cache-Control: no-store' in stream
           assert 'echo $chunk' not in stream
           assert 'provider_secrets' not in stream.lower()
@@ -150,8 +150,9 @@ jobs:
               assert marker in chat, marker
           assert 'eval(' not in chat
           assert 'response.body.getReader()' in chat
-          assert "eventName==='delta'" in chat or 'eventName === \'delta\'' in chat
+          assert "eventName==='delta'" in chat or "eventName === 'delta'" in chat
           assert 'controller.abort()' in chat
+          assert 'validId(userMessageId)' in chat, 'fallback must reuse persisted user message id'
           print('MESO_CHAT_V2_STREAM_CLIENT=PASS')
           PY
 
@@ -160,9 +161,7 @@ jobs:
           python3 - <<'PY'
           from pathlib import Path
           chat=Path('web/chat/chat.js').read_text(encoding='utf-8')
-          css_path=Path('web/chat/chat-v2.css')
-          assert css_path.is_file(), 'chat-v2.css missing'
-          css=css_path.read_text(encoding='utf-8')
+          css=Path('web/chat/chat-v2.css').read_text(encoding='utf-8')
           sw=Path('web/sw.js').read_text(encoding='utf-8')
           assert 'meso-app-shell-v12' in sw
           assert '/meso/chat/chat-v2.css' in sw
