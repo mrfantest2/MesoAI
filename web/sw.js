@@ -1,5 +1,5 @@
-// Prior cache floors retained for compatibility checks: meso-app-shell-v6 meso-app-shell-v7 meso-app-shell-v8 meso-app-shell-v9 meso-app-shell-v10 meso-app-shell-v11
-const CACHE_NAME = 'meso-app-shell-v12';
+// Prior cache floors retained for compatibility checks: meso-app-shell-v6 meso-app-shell-v7 meso-app-shell-v8 meso-app-shell-v9 meso-app-shell-v10 meso-app-shell-v11 meso-app-shell-v12
+const CACHE_NAME = 'meso-app-shell-v13';
 const STATIC_ASSETS = [
   '/meso/app.webmanifest',
   '/meso/offline.html',
