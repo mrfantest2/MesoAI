@@ -20,7 +20,7 @@
   async function readJson(response){
     let body={};
     try{body=await response.json();}catch(_){body={ok:false,error:'invalid_json'};}
-    if(response.status===403){location.reload();throw new Error('chat_auth_required');}
+    if(response.status===403){throw new Error(String(body?.error||'chat_auth_required'));}
     return body;
   }
 
