@@ -1,0 +1,68 @@
+name: MesoAI Production Stability Checks
+
+on:
+  push:
+    branches: [hotfix/meso-production-stability-20260903]
+  pull_request:
+    branches: [main]
+    paths:
+      - web/includes/chat_auth.php
+      - web/chat/chat.js
+      - web/chat/conversations.js
+      - web/chat/memory.js
+      - web/sw.js
+      - .github/workflows/meso-production-stability-checks.yml
+
+permissions:
+  contents: read
+
+jobs:
+  production-stability:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Syntax
+        run: |
+          php -l web/includes/chat_auth.php
+          node --check web/chat/chat.js
+          node --check web/chat/conversations.js
+          node --check web/chat/memory.js
+          node --check web/sw.js
+
+      - name: Cloudflare proxy state-auth regression
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          auth=Path('web/includes/chat_auth.php').read_text(encoding='utf-8')
+          old="(int)($server['SERVER_PORT'] ?? ($requestIsHttps ? 443 : 80))"
+          new="($requestIsHttps ? 443 : 80)"
+          assert old not in auth, 'backend SERVER_PORT must not override public forwarded HTTPS port'
+          assert new in auth, 'public request port must follow forwarded HTTPS scheme when Host has no explicit port'
+          print('MESO_PROXY_STATE_AUTH=PASS')
+          PY
+
+      - name: Browser reload-loop regression
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          bad="if(response.status===403){location.reload()"
+          for path in ('web/chat/chat.js','web/chat/conversations.js','web/chat/memory.js'):
+              text=Path(path).read_text(encoding='utf-8')
+              assert bad not in text, f'{path} still reloads the page on API 403'
+              assert 'response.status===403' in text, f'{path} lost explicit auth-error handling'
+          print('MESO_BROWSER_RELOAD_LOOP=PASS')
+          PY
+
+      - name: Service-worker network-only chat scripts regression
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          sw=Path('web/sw.js').read_text(encoding='utf-8')
+          assert "meso-app-shell-v11" in sw, 'PWA cache must be v11 or newer'
+          for asset in ('/meso/chat/chat.js','/meso/chat/conversations.js','/meso/chat/memory.js'):
+              assert asset not in sw.split('const STATIC_ASSETS = [',1)[1].split('];',1)[0], f'{asset} must not be cached'
+          assert 'if (!STATIC_ASSETS.includes(url.pathname)) { event.respondWith(fetch(request)); return; }' in sw, 'non-static chat scripts must stay network-only'
+          print('MESO_PWA_STABILITY=PASS')
+          PY

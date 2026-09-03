@@ -61,8 +61,10 @@ jobs:
           assert 'innerHTML' not in js
           assert 'meso.activeConversation.v1' in chat
           assert 'mesoConversationController' in chat
-          assert 'meso-app-shell-v10' in sw
-          assert '/meso/chat/conversations.js' in sw
+          assert 'meso-app-shell-v11' in sw
+          static=sw.split('const STATIC_ASSETS = [',1)[1].split('];',1)[0]
+          assert '/meso/chat/conversations.js' not in static
+          assert 'if (!STATIC_ASSETS.includes(url.pathname)) { event.respondWith(fetch(request)); return; }' in sw
           assert "url.pathname.startsWith('/meso/api/')" in sw
           print('MESO_CHAT_V2_CONVERSATIONS=PASS')
           PY

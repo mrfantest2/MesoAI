@@ -142,8 +142,10 @@ jobs:
           assert 'conversation_memory' in memjs
           assert 'memoryBtn' in index and 'memorySheet' in index and 'memoryClear' in index
           assert 'Memory</span><span class="pill good">MESO v1' in index
-          assert 'meso-app-shell-v9' in sw
-          assert '/meso/chat/memory.js' in sw
+          assert 'meso-app-shell-v11' in sw
+          static = sw.split('const STATIC_ASSETS = [',1)[1].split('];',1)[0]
+          assert '/meso/chat/memory.js' not in static
+          assert 'if (!STATIC_ASSETS.includes(url.pathname)) { event.respondWith(fetch(request)); return; }' in sw
           assert "url.pathname.startsWith('/meso/api/')" in sw
           assert "url.pathname === '/meso/chat/'" in sw
           print('MESO_MEMORY_V1_BROWSER_UX=PASS')

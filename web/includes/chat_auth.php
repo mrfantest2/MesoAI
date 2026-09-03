@@ -128,7 +128,7 @@ function meso_chat_state_request_allowed(array $server): bool {
     $requestScheme = $requestIsHttps ? 'https' : 'http';
     if ($originScheme !== $requestScheme) return false;
 
-    $requestPort = isset($requestAuthority['port']) ? (int)$requestAuthority['port'] : (int)($server['SERVER_PORT'] ?? ($requestIsHttps ? 443 : 80));
+    $requestPort = isset($requestAuthority['port']) ? (int)$requestAuthority['port'] : ($requestIsHttps ? 443 : 80);
     if ($requestPort <= 0) $requestPort = $requestIsHttps ? 443 : 80;
     $originPort = isset($parts['port']) ? (int)$parts['port'] : ($originScheme === 'https' ? 443 : 80);
     return $requestPort === $originPort;
