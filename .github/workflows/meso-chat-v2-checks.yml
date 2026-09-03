@@ -2,7 +2,7 @@ name: MesoAI Chat v2 Checks
 
 on:
   push:
-    branches: [feature/meso-v3-program-recovered]
+    branches: [feature/meso-v3-program-recovered, feature/meso-chat-v2-task2]
     paths:
       - web/includes/memory.php
       - web/api/chat.php
@@ -11,6 +11,7 @@ on:
       - web/chat/conversations.js
       - web/chat/render.js
       - web/sw.js
+      - tests/chat_v2_regenerate_contract.php
       - .github/workflows/meso-chat-v2-checks.yml
   pull_request:
     branches: [main]
@@ -22,6 +23,7 @@ on:
       - web/chat/conversations.js
       - web/chat/render.js
       - web/sw.js
+      - tests/chat_v2_regenerate_contract.php
       - .github/workflows/meso-chat-v2-checks.yml
 
 permissions:
@@ -39,10 +41,14 @@ jobs:
           php -l web/includes/memory.php
           php -l web/api/chat.php
           php -l web/chat/index.php
+          php -l tests/chat_v2_regenerate_contract.php
           node --check web/chat/chat.js
           node --check web/chat/conversations.js
           node --check web/chat/render.js
           node --check web/sw.js
+
+      - name: Regeneration identity contract
+        run: php tests/chat_v2_regenerate_contract.php
 
       - name: Persistent conversation navigator contract
         run: |
@@ -94,6 +100,8 @@ jobs:
           assert 'meso_memory_get_message' in api
           assert 'function meso_memory_get_message' in memory
           assert '/meso/chat/render.js' in page
-          assert '/meso/chat/render.js' in sw
+          static=sw.split('const STATIC_ASSETS = [',1)[1].split('];',1)[0]
+          assert '/meso/chat/render.js' not in static
+          assert 'if (!STATIC_ASSETS.includes(url.pathname)) { event.respondWith(fetch(request)); return; }' in sw
           print('MESO_CHAT_V2_RENDER_ACTIONS=PASS')
           PY
