@@ -25,7 +25,7 @@
   function emitConversationChanged(){window.dispatchEvent(new CustomEvent('meso:conversation-changed',{detail:{conversation_id:activeConversationId}}));}
   function showEmpty(title,detail){messages.replaceChildren();const wrap=document.createElement('div');wrap.className='empty';const orb=document.createElement('div');orb.className='orb';orb.textContent='✦';const strong=document.createElement('strong');strong.textContent=title;const body=document.createElement('div');body.style.marginTop='7px';body.textContent=detail;wrap.append(orb,strong,body);messages.appendChild(wrap);}
   function messageMeta(item){if(!item||item.role!=='assistant')return '';const parts=[];if(item.provider)parts.push(String(item.provider));if(item.model)parts.push(String(item.model));if(item.persona_version)parts.push(`persona · ${item.persona_version}`);if(item.persona_grounding&&item.persona_grounding!=='off')parts.push(String(item.persona_grounding));if(Number(item.persona_evidence_count||0)>0)parts.push(`evidence ${Number(item.persona_evidence_count)}`);return parts.join(' · ');}
-  function addMessage(role,text,meta=''){const empty=messages.querySelector('.empty');if(empty)messages.replaceChildren();const card=document.createElement('div');card.className=`msg ${role}`;const label=document.createElement('div');label.className='role';label.textContent=meta?`${role} · ${meta}`:role;const body=document.createElement('div');body.textContent=String(text??'');card.append(label,body);messages.appendChild(card);messages.scrollTop=messages.scrollHeight;}
+  function addMessage(role,text,meta='',options={}){const empty=messages.querySelector('.empty');if(empty)messages.replaceChildren();const card=document.createElement('div');card.className=`msg ${role}`;const label=document.createElement('div');label.className='role';label.textContent=meta?`${role} · ${meta}`:role;const body=document.createElement('div');body.className='messageBody';const plain=String(text??'');if(role==='assistant'&&typeof window.mesoRenderAssistant==='function')window.mesoRenderAssistant(body,plain);else body.textContent=plain;card.append(label,body);const userMessageId=String(options?.userMessageId||'');if(role==='assistant'&&typeof window.mesoAttachMessageActions==='function')window.mesoAttachMessageActions(card,{text:plain,onRegenerate:validId(userMessageId)?()=>regenerateMessage(userMessageId):undefined});messages.appendChild(card);messages.scrollTop=messages.scrollHeight;return card;}
   function setBusy(value,label=''){send.disabled=value||!bootstrapped;input.disabled=value||!bootstrapped;if(mic&&!recording)mic.disabled=value||!bootstrapped;status.textContent=label||(value?'Thinking…':baseStatus());}
   function stopTracks(){if(stream)for(const track of stream.getTracks())track.stop();stream=null;}
   function resetRecorderUi(){recording=false;clearTimeout(autoStopTimer);autoStopTimer=null;if(mic){mic.classList.remove('recording');mic.setAttribute('aria-pressed','false');mic.textContent='🎙';}stopTracks();}
@@ -91,7 +91,18 @@
     messages.replaceChildren();
     const items=Array.isArray(body.items)?body.items:[];
     if(items.length===0){showEmpty('Private conversation ready','Conversation Memory v1 is ON. Historical Persona evidence remains a separate store.');return;}
-    for(const item of items){const role=String(item?.role||'');if(role!=='user'&&role!=='assistant')continue;addMessage(role,String(item?.content||''),messageMeta(item));}
+    let lastUserMessageId='';
+    for(const item of items){
+      const role=String(item?.role||'');
+      if(role!=='user'&&role!=='assistant')continue;
+      const itemId=String(item?.id||'');
+      if(role==='user'){
+        lastUserMessageId=validId(itemId)?itemId:'';
+        addMessage(role,String(item?.content||''),messageMeta(item));
+      }else{
+        addMessage(role,String(item?.content||''),messageMeta(item),{userMessageId:lastUserMessageId});
+      }
+    }
   }
 
   async function activateConversation(conversationId){
@@ -137,6 +148,37 @@
     }
   }
 
+  function responseMeta(body){
+    const persona=`persona · ${String(body?.persona||'off')}`;
+    const grounding=String(body?.persona_grounding||'off');
+    const groundingPart=grounding&&grounding!=='off'?` · ${grounding}`:'';
+    const evidence=Number(body?.persona_evidence||0)>0?` · evidence ${Number(body.persona_evidence)}`:'';
+    const remembered=Number(body?.memory_items_used||0)>0?` · memory ${Number(body.memory_items_used)}`:'';
+    return `${body?.provider||''}${body?.model?` · ${body.model}`:''} · ${persona}${groundingPart}${evidence}${remembered}`;
+  }
+
+  async function regenerateMessage(userMessageId){
+    const id=String(userMessageId||'');
+    if(!validId(id)||!validId(activeConversationId)||send.disabled)return;
+    setBusy(true,`Regenerating · Persona ${activePersona} · Memory v1…`);
+    try{
+      const response=await fetch('/meso/api/chat.php',{method:'POST',credentials:'same-origin',cache:'no-store',headers:stateJsonHeaders,body:JSON.stringify({conversation_id:activeConversationId,regenerate_message_id:id})});
+      const body=await readJson(response);
+      if(!response.ok||!body.ok)throw new Error(body.message||body.error||`HTTP ${response.status}`);
+      if(String(body.conversation_id||'')!==activeConversationId)throw new Error('conversation_response_mismatch');
+      if(String(body.user_message_id||'')!==id)throw new Error('regenerate_user_message_mismatch');
+      if(!validId(String(body.message_id||'')))throw new Error('invalid_message_id');
+      activePersona=String(body.persona||'off');
+      activeGrounding=String(body.persona_grounding||'off');
+      addMessage('assistant',body.reply,responseMeta(body),{userMessageId:id});
+      window.dispatchEvent(new CustomEvent('meso:memory-changed',{detail:{conversation_id:activeConversationId}}));
+    }catch(error){
+      addMessage('assistant',`Regenerate error: ${error.message}`,'system');
+    }finally{
+      setBusy(false);input.focus();
+    }
+  }
+
   async function sendText(){
     const text=input.value.trim();
     if(!text||send.disabled||!validId(activeConversationId))return;
@@ -151,12 +193,9 @@
       if(!validId(String(body.message_id||'')))throw new Error('invalid_message_id');
       activePersona=String(body.persona||'off');
       activeGrounding=String(body.persona_grounding||'off');
-      const persona=`persona · ${activePersona}`;
-      const grounding=activeGrounding&&activeGrounding!=='off'?` · ${activeGrounding}`:'';
-      const evidence=Number(body.persona_evidence||0)>0?` · evidence ${Number(body.persona_evidence)}`:'';
-      const remembered=Number(body.memory_items_used||0)>0?` · memory ${Number(body.memory_items_used)}`:'';
-      const meta=`${body.provider||''}${body.model?` · ${body.model}`:''} · ${persona}${grounding}${evidence}${remembered}`;
-      addMessage('assistant',body.reply,meta);
+      const userMessageId=String(body.user_message_id||'');
+      if(!validId(userMessageId))throw new Error('invalid_user_message_id');
+      addMessage('assistant',body.reply,responseMeta(body),{userMessageId});
       window.dispatchEvent(new CustomEvent('meso:memory-changed',{detail:{conversation_id:activeConversationId}}));
     }catch(error){
       addMessage('assistant',`Chat error: ${error.message}`,'system');
