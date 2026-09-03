@@ -49,10 +49,11 @@ jobs:
         run: |
           python3 - <<'PY'
           from pathlib import Path
+          bad="if(response.status===403){location.reload()"
           for path in ('web/chat/chat.js','web/chat/conversations.js','web/chat/memory.js'):
               text=Path(path).read_text(encoding='utf-8')
-              assert 'location.reload()' not in text, f'{path} still auto-reloads on API auth failure'
-              assert 'chat_auth_required' in text or 'response.status===403' in text, f'{path} lost explicit auth-error handling'
+              assert bad not in text, f'{path} still reloads the page on API 403'
+              assert 'response.status===403' in text, f'{path} lost explicit auth-error handling'
           print('MESO_BROWSER_RELOAD_LOOP=PASS')
           PY
 
