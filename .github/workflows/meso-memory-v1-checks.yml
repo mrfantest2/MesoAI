@@ -2,7 +2,7 @@ name: MesoAI Memory v1 Checks
 
 on:
   push:
-    branches: [feature/meso-v3-program, feature/meso-v3-program-recovered]
+    branches: [feature/meso-v3-program, feature/meso-v3-program-recovered, feature/meso-v22-live-voice]
     paths:
       - web/includes/memory.php
       - web/includes/chat_auth.php
@@ -138,7 +138,7 @@ jobs:
           assert 'conversation_memory' in memjs
           assert 'memoryBtn' in index and 'memorySheet' in index and 'memoryClear' in index
           assert 'Memory</span><span class="pill good">MESO v1' in index
-          assert 'meso-app-shell-v12' in sw
+          assert 'meso-app-shell-v13' in sw
           static = sw.split('const STATIC_ASSETS = [',1)[1].split('];',1)[0]
           assert '/meso/chat/memory.js' not in static
           assert 'if (!STATIC_ASSETS.includes(url.pathname)) { event.respondWith(fetch(request)); return; }' in sw
