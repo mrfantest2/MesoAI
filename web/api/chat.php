@@ -172,8 +172,9 @@ if($provider==='ollama'){
     $messages[]=['role'=>'user','content'=>$message];
     $response=curl_json(
         rtrim((string)$cfg['base_url'],'/').'/api/chat',
-        ['model'=>$model,'messages'=>$messages,'stream'=>false,'options'=>['num_predict'=>900]],
-        ['Content-Type: application/json','Accept: application/json']
+        ['model'=>$model,'messages'=>$messages,'stream'=>false,'keep_alive'=>-1,'options'=>['num_predict'=>900]],
+        ['Content-Type: application/json','Accept: application/json'],
+        300
     );
     $reply=trim((string)($response['message']['content']??''));
     if($reply==='') fail_json(502,'empty_provider_response');
