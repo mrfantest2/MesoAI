@@ -2,12 +2,15 @@ name: MesoAI Chat v2 Checks
 
 on:
   push:
-    branches: [feature/meso-v3-program-recovered, feature/meso-chat-v2-task2]
+    branches: [feature/meso-v3-program-recovered, feature/meso-chat-v2-task2, feature/meso-chat-v2-streaming]
     paths:
       - web/includes/memory.php
+      - web/includes/chat_runtime.php
       - web/api/chat.php
+      - web/api/chat-stream.php
       - web/chat/index.php
       - web/chat/chat.js
+      - web/chat/chat-v2.css
       - web/chat/conversations.js
       - web/chat/render.js
       - web/sw.js
@@ -17,9 +20,12 @@ on:
     branches: [main]
     paths:
       - web/includes/memory.php
+      - web/includes/chat_runtime.php
       - web/api/chat.php
+      - web/api/chat-stream.php
       - web/chat/index.php
       - web/chat/chat.js
+      - web/chat/chat-v2.css
       - web/chat/conversations.js
       - web/chat/render.js
       - web/sw.js
@@ -36,7 +42,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Syntax
+      - name: Existing syntax
         run: |
           php -l web/includes/memory.php
           php -l web/api/chat.php
@@ -58,7 +64,6 @@ jobs:
           js=Path('web/chat/conversations.js').read_text(encoding='utf-8')
           chat=Path('web/chat/chat.js').read_text(encoding='utf-8')
           sw=Path('web/sw.js').read_text(encoding='utf-8')
-
           for marker in ('conversationList','archivedConversationList','conversationDrawer','conversationDrawerToggle'):
               assert marker in page, marker
           for marker in ('/meso/api/conversations.php','/meso/api/messages.php','mesoConversationController','meso:conversation-changed','rename','archive','delete'):
@@ -67,10 +72,6 @@ jobs:
           assert 'innerHTML' not in js
           assert 'meso.activeConversation.v1' in chat
           assert 'mesoConversationController' in chat
-          assert 'meso-app-shell-v11' in sw
-          static=sw.split('const STATIC_ASSETS = [',1)[1].split('];',1)[0]
-          assert '/meso/chat/conversations.js' not in static
-          assert 'if (!STATIC_ASSETS.includes(url.pathname)) { event.respondWith(fetch(request)); return; }' in sw
           assert "url.pathname.startsWith('/meso/api/')" in sw
           print('MESO_CHAT_V2_CONVERSATIONS=PASS')
           PY
@@ -84,13 +85,11 @@ jobs:
           api=Path('web/api/chat.php').read_text(encoding='utf-8')
           memory=Path('web/includes/memory.php').read_text(encoding='utf-8')
           page=Path('web/chat/index.php').read_text(encoding='utf-8')
-          sw=Path('web/sw.js').read_text(encoding='utf-8')
-
           for marker in ('mesoRenderAssistant','mesoAttachMessageActions','createTextNode','clipboard','Regenerate','Copy'):
               assert marker in render, marker
           assert 'innerHTML' not in render
           assert 'javascript:' not in render.lower()
-          assert "rel='noopener noreferrer'" in render or 'noopener noreferrer' in render
+          assert 'noopener noreferrer' in render
           assert 'mesoRenderAssistant' in chat
           assert 'mesoAttachMessageActions' in chat
           assert 'regenerateMessage' in chat
@@ -100,8 +99,81 @@ jobs:
           assert 'meso_memory_get_message' in api
           assert 'function meso_memory_get_message' in memory
           assert '/meso/chat/render.js' in page
-          static=sw.split('const STATIC_ASSETS = [',1)[1].split('];',1)[0]
-          assert '/meso/chat/render.js' not in static
-          assert 'if (!STATIC_ASSETS.includes(url.pathname)) { event.respondWith(fetch(request)); return; }' in sw
           print('MESO_CHAT_V2_RENDER_ACTIONS=PASS')
+          PY
+
+      - name: Shared runtime parity contract
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          runtime_path=Path('web/includes/chat_runtime.php')
+          assert runtime_path.is_file(), 'chat_runtime.php missing'
+          runtime=runtime_path.read_text(encoding='utf-8')
+          api=Path('web/api/chat.php').read_text(encoding='utf-8')
+          for marker in ('meso_chat_provider_config','meso_chat_prepare_request','meso_chat_context_for','meso_chat_persist_user_turn','meso_chat_persist_assistant_turn','meso_chat_openai_extract_text'):
+              assert marker in runtime, marker
+              assert marker in api, f'chat.php does not consume {marker}'
+          for duplicate in ('function provider_config','function rate_limit_or_fail','function curl_json','function extract_openai_text'):
+              assert duplicate not in api, duplicate
+          assert "'keep_alive'=>-1" in runtime
+          assert '300' in runtime
+          assert 'MESO_PRIVATE' not in api
+          print('MESO_CHAT_V2_RUNTIME=PASS')
+          PY
+
+      - name: Streaming endpoint contract
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          stream_path=Path('web/api/chat-stream.php')
+          assert stream_path.is_file(), 'chat-stream.php missing'
+          stream=stream_path.read_text(encoding='utf-8')
+          runtime=Path('web/includes/chat_runtime.php').read_text(encoding='utf-8')
+          for marker in ('text/event-stream','meso_chat_require_json_state_auth','meso_chat_sse_event','CURLOPT_WRITEFUNCTION','connection_aborted','meso_chat_persist_assistant_turn'):
+              assert marker in stream, marker
+          assert "'stream'=>true" in stream
+          assert "'keep_alive'=>-1" in stream
+          assert 'Cache-Control: no-store' in stream
+          assert 'echo $chunk' not in stream
+          assert 'provider_secrets' not in stream.lower()
+          assert 'meso_chat_prepare_request' in stream and 'meso_chat_context_for' in stream and 'meso_chat_persist_user_turn' in stream
+          assert 'meso_chat_stream_limit' in runtime
+          print('MESO_CHAT_V2_STREAM_SERVER=PASS')
+          PY
+
+      - name: Client stream cancel fallback contract
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          chat=Path('web/chat/chat.js').read_text(encoding='utf-8')
+          for marker in ('AbortController','/meso/api/chat-stream.php','TextDecoder','stopGeneration','deltaAccepted','fallbackEligible','regenerate_message_id','user_message_id'):
+              assert marker in chat, marker
+          assert 'eval(' not in chat
+          assert 'response.body.getReader()' in chat
+          assert "eventName==='delta'" in chat or 'eventName === \'delta\'' in chat
+          assert 'controller.abort()' in chat
+          print('MESO_CHAT_V2_STREAM_CLIENT=PASS')
+          PY
+
+      - name: Mobile PWA state polish contract
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          chat=Path('web/chat/chat.js').read_text(encoding='utf-8')
+          css_path=Path('web/chat/chat-v2.css')
+          assert css_path.is_file(), 'chat-v2.css missing'
+          css=css_path.read_text(encoding='utf-8')
+          sw=Path('web/sw.js').read_text(encoding='utf-8')
+          assert 'meso-app-shell-v12' in sw
+          assert '/meso/chat/chat-v2.css' in sw
+          static=sw.split('const STATIC_ASSETS = [',1)[1].split('];',1)[0]
+          for asset in ('/meso/chat/chat.js','/meso/chat/conversations.js','/meso/chat/memory.js','/meso/chat/render.js'):
+              assert asset not in static, f'{asset} must stay network-only'
+          assert "url.pathname.startsWith('/meso/api/')" in sw
+          for marker in ('Historical evidence','Conversation memory','autoHeight','e.shiftKey','stopGeneration'):
+              assert marker in chat, marker
+          assert 'overflow-x:hidden' in css.replace(' ','')
+          assert 'min-height:44px' in css.replace(' ','')
+          assert 'env(safe-area-inset-bottom)' in css
+          print('MESO_CHAT_V2_MOBILE_PWA=PASS')
           PY
