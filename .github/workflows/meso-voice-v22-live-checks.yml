@@ -105,8 +105,10 @@ jobs:
           stt=Path('web/api/transcribe.php').read_text(encoding='utf-8')
           for marker in ('MediaRecorder','navigator.mediaDevices.getUserMedia','startRecording','stopRecording','/meso/api/transcribe.php','await sendText()'):
               assert marker in chat, marker
-          for marker in ('meso_chat_require_json_auth','chat-stt','transcribe_chat_audio.py',"'provider_upload'=>false"):
+          for marker in ('meso_chat_require_json_auth','chat-stt','transcribe_chat_audio.py'):
               assert marker in stt, marker
+          compact=''.join(stt.split())
+          assert "'provider_upload'=>false" in compact, 'STT responses must explicitly state that microphone audio is not uploaded to a provider'
           assert 'curl_' not in stt, 'STT endpoint must remain local and must not upload microphone media to a provider'
           print('MESO_PUSH_TO_TALK_LOCAL=PASS')
           PY
