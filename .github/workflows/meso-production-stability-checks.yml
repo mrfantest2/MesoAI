@@ -2,11 +2,12 @@ name: MesoAI Production Stability Checks
 
 on:
   push:
-    branches: [hotfix/meso-production-stability-20260903]
+    branches: [hotfix/meso-production-stability-20260903, hotfix/meso-ollama-coldstart-502]
   pull_request:
     branches: [main]
     paths:
       - web/includes/chat_auth.php
+      - web/api/chat.php
       - web/chat/chat.js
       - web/chat/conversations.js
       - web/chat/memory.js
@@ -26,6 +27,7 @@ jobs:
       - name: Syntax
         run: |
           php -l web/includes/chat_auth.php
+          php -l web/api/chat.php
           node --check web/chat/chat.js
           node --check web/chat/conversations.js
           node --check web/chat/memory.js
@@ -53,6 +55,17 @@ jobs:
               assert bad not in text, f'{path} still reloads the page on API 403'
               assert 'response.status===403' in text, f'{path} lost explicit auth-error handling'
           print('MESO_BROWSER_RELOAD_LOOP=PASS')
+          PY
+
+      - name: Ollama cold-start regression
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          chat=Path('web/api/chat.php').read_text(encoding='utf-8')
+          assert "'keep_alive'=>-1" in chat, 'Ollama request must keep the dedicated Meso model loaded'
+          ollama_call=chat.split("if($provider==='ollama')",1)[1].split("$reply=",1)[0]
+          assert ',\n        300\n    );' in ollama_call, 'Ollama provider timeout must allow slow cold loads'
+          print('MESO_OLLAMA_COLDSTART=PASS')
           PY
 
       - name: Service-worker network-only chat scripts regression
