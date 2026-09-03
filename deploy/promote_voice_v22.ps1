@@ -25,13 +25,17 @@ from pathlib import Path
 source=Path(sys.argv[1]).resolve()
 batch=int(sys.argv[2]); label=sys.argv[3]
 root=Path('/data/voice/profiles/khalil').resolve()
+target=Path('/data/voice/profiles/khalil/meso-v2.2/refs/meso_v22_ref_01.wav').resolve()
+profile_path=Path('/data/voice/profiles/khalil/meso-v2.2/profile.json').resolve()
 source.relative_to(root)
+target.relative_to(root)
+profile_path.relative_to(root)
 if not source.is_file() or source.stat().st_size <= 4096:
     raise SystemExit('invalid_selected_reference')
-target_dir=root/'meso-v2.2'
-refs_dir=target_dir/'refs'
+refs_dir=target.parent
+target_dir=profile_path.parent
 refs_dir.mkdir(parents=True,exist_ok=True)
-target=refs_dir/'meso_v22_ref_01.wav'
+target_dir.mkdir(parents=True,exist_ok=True)
 tmp_ref=refs_dir/f'.meso_v22_ref_01.{os.getpid()}.tmp'
 shutil.copy2(source,tmp_ref)
 os.chmod(tmp_ref,0o444)
@@ -51,9 +55,9 @@ with open(tmp_profile,'w',encoding='utf-8',newline='\n') as fh:
     json.dump(profile,fh,ensure_ascii=False,separators=(',',':'))
     fh.write('\n'); fh.flush(); os.fsync(fh.fileno())
 os.chmod(tmp_profile,0o444)
-os.replace(tmp_profile,target_dir/'profile.json')
-os.chmod(target_dir/'profile.json',0o444)
-verify=json.loads((target_dir/'profile.json').read_text(encoding='utf-8'))
+os.replace(tmp_profile,profile_path)
+os.chmod(profile_path,0o444)
+verify=json.loads(profile_path.read_text(encoding='utf-8'))
 assert verify['profile']=='meso-v2.2' and verify['synthesis_allowed'] is True
 assert len(verify['references'])==1 and verify['references'][0]['path']==str(target)
 assert verify['selection']=={'batch':batch,'label':label}
