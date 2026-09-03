@@ -126,12 +126,16 @@ function meso_persona_tokens(string $text): array {
     ], true);
     $parts = preg_split('/\s+/u', $normal) ?: [];
     $out = [];
+    $seen = [];
     foreach ($parts as $token) {
         if ($token === '' || isset($stop[$token]) || mb_strlen($token) < 2) continue;
-        $out[$token] = true;
+        $key = 't:' . $token;
+        if (isset($seen[$key])) continue;
+        $seen[$key] = true;
+        $out[] = $token;
         if (count($out) >= 24) break;
     }
-    return array_keys($out);
+    return $out;
 }
 
 function meso_persona_memory_query(string $message): bool {
