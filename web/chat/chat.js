@@ -91,16 +91,17 @@
     messages.replaceChildren();
     const items=Array.isArray(body.items)?body.items:[];
     if(items.length===0){showEmpty('Private conversation ready','Conversation Memory v1 is ON. Historical Persona evidence remains a separate store.');return;}
-    let lastUserMessageId='';
+    let pendingUserMessageId='';
     for(const item of items){
       const role=String(item?.role||'');
       if(role!=='user'&&role!=='assistant')continue;
       const itemId=String(item?.id||'');
       if(role==='user'){
-        lastUserMessageId=validId(itemId)?itemId:'';
+        pendingUserMessageId=validId(itemId)?itemId:'';
         addMessage(role,String(item?.content||''),messageMeta(item));
       }else{
-        addMessage(role,String(item?.content||''),messageMeta(item),{userMessageId:lastUserMessageId});
+        addMessage(role,String(item?.content||''),messageMeta(item),{userMessageId:pendingUserMessageId});
+        pendingUserMessageId='';
       }
     }
   }
