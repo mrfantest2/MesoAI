@@ -57,6 +57,8 @@ Candidate labels remain anonymous. The private mapping from A-E to reference str
 ### 4. Browser/API boundary
 Add a separate v2.4 API namespace and keep v2.3 available only as rejected historical review data.
 
+Authenticated review requests use `/meso/api/voice-lab-v24.php`. Tokenized historical-anchor and generated-candidate audio is served only through `/meso/api/voice-lab-v24-audio.php?id=<64hex>`.
+
 The browser receives only:
 - version
 - batch/lane count
