@@ -31,6 +31,7 @@ $audio = need_file(__DIR__ . '/../web/api/voice-lab-v23-audio.php');
 $helper = need_file(__DIR__ . '/../tools/meso_xtts_sweep_v23_client.py');
 $js = need_file(__DIR__ . '/../web/voice-lab/voice-lab.js');
 $index = need_file(__DIR__ . '/../web/voice-lab/index.php');
+$deploy = need_file(__DIR__ . '/../deploy/deploy_to_xampp.ps1');
 
 foreach ([
     ['voice-lab-v23', 'v2.3 private root'],
@@ -48,6 +49,9 @@ need($js, '/meso/api/voice-lab-v23.php', 'browser v2.3 API');
 need($js, '/meso/api/voice-lab-v23-audio.php', 'browser v2.3 audio');
 need($index, 'Voice v2.3', 'browser v2.3 badge');
 need($index, '2–4 private Meso references', 'browser multi-reference disclosure');
+need($deploy, "tools\\meso_xtts_sweep_v23_client.py", 'deploy v2.3 helper source');
+need($deploy, "meso_xtts_sweep_v23_client.py", 'deploy v2.3 helper destination');
+need($deploy, 'MESO_V23_XTTS_SWEEP_RUNTIME_STAGED=true', 'deploy v2.3 helper verification');
 
 // Lab/voting code must not promote or select a production voice implicitly.
 foreach ([[$api, 'profile.json', 'API'], [$js, 'promote', 'browser'], [$helper, 'votes.jsonl', 'helper']] as [$text,$marker,$label]) {
