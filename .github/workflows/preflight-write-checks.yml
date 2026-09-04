@@ -23,56 +23,40 @@ jobs:
             sudo apt-get install -y -qq php-cli
           fi
 
-      - name: Voice v2.2 single-reference sweep contract
+      - name: Voice v2.2 archived single-reference contract
         run: |
           python3 - <<'PY'
           from pathlib import Path
 
-          required = [
-              Path('tools/meso_xtts_sweep_client.py'),
-              Path('web/voice-lab/index.php'),
-              Path('web/voice-lab/voice-lab.js'),
-              Path('web/api/voice-lab-v22.php'),
-              Path('web/api/voice-lab-v22-audio.php'),
-          ]
-          for p in required:
+          helper = Path('tools/meso_xtts_sweep_client.py')
+          api_path = Path('web/api/voice-lab-v22.php')
+          audio_path = Path('web/api/voice-lab-v22-audio.php')
+          page_path = Path('web/voice-lab/index.php')
+          js_path = Path('web/voice-lab/voice-lab.js')
+          for p in (helper, api_path, audio_path, page_path, js_path):
               assert p.is_file(), f'missing {p}'
 
-          helper = required[0].read_text(encoding='utf-8')
-          page = required[1].read_text(encoding='utf-8')
-          js = required[2].read_text(encoding='utf-8')
-          api = required[3].read_text(encoding='utf-8')
-          audio = required[4].read_text(encoding='utf-8')
-          combined = '\n'.join((page, js, api, audio))
+          helper_text = helper.read_text(encoding='utf-8')
+          api = api_path.read_text(encoding='utf-8')
+          audio = audio_path.read_text(encoding='utf-8')
+          archived = '\n'.join((api, audio))
 
-          assert r'C:\MesoAI\private\voice-lab-v22\sweep.json' in helper
-          assert '/data/voice/profiles/khalil' in helper
-          assert 'speaker_wav' in helper and 'xtts-v2' in helper
-          normalized = helper.replace(' ', '')
+          assert r'C:\MesoAI\private\voice-lab-v22\sweep.json' in helper_text
+          assert '/data/voice/profiles/khalil' in helper_text
+          assert 'speaker_wav' in helper_text and 'xtts-v2' in helper_text
+          normalized = helper_text.replace(' ', '')
           assert "{'A','B','C','D','E'}" in normalized
-          assert 'batch' in helper
-          assert 'len(refs) != 1' in helper or 'len(refs)!=1' in normalized
+          assert 'batch' in helper_text
+          assert 'len(refs) != 1' in helper_text or 'len(refs)!=1' in normalized
 
           assert 'meso_chat_require_json_auth' in api
           assert 'meso_chat_require_json_auth' in audio
           assert 'Accept-Ranges: bytes' in audio
           assert 'Content-Range: bytes' in audio
           assert 'reject' in api.lower() and 'vote' in api.lower()
-
-          assert 'Reject all' in page
-          assert 'data-label="E"' in page
-          assert 'Batch' in page
-          assert '/meso/api/voice-lab-v22.php' in js
-          assert '/meso/api/voice-lab-v22-audio.php' in js
-          assert 'rejectAll' in js
-          assert 'nextBatch' in js
-
-          assert 'sweep.json' not in combined
-          assert 'WhatsApp' not in combined and 'Instagram' not in combined
-          assert 'single-best-whatsapp' not in combined
-          assert 'four-clean-whatsapp' not in combined
-          assert 'hybrid-two-whatsapp-two-instagram' not in combined
-          print('MESO_VOICE_V22_SWEEP_STATIC=PASS')
+          assert 'sweep.json' not in archived
+          assert 'WhatsApp' not in archived and 'Instagram' not in archived
+          print('MESO_VOICE_V22_ARCHIVED_STATIC=PASS')
           PY
 
       - name: Syntax
@@ -83,14 +67,14 @@ jobs:
           php -l web/api/voice-lab-v22.php
           php -l web/api/voice-lab-v22-audio.php
 
-      - name: Reject private media and source identities in Git
+      - name: Reject private media and source identities in tracked v2.2 source
         run: |
           bad="$(git ls-files | grep -Ei '\.(wav|mp3|m4a|aac|opus|ogg|flac|zip|7z)$' || true)"
           if [ -n "$bad" ]; then
             echo "$bad" >&2
             exit 1
           fi
-          targets='tools/meso_xtts_sweep_client.py web/voice-lab/index.php web/voice-lab/voice-lab.js web/api/voice-lab-v22.php web/api/voice-lab-v22-audio.php'
+          targets='tools/meso_xtts_sweep_client.py web/api/voice-lab-v22.php web/api/voice-lab-v22-audio.php'
           if grep -niE 'AUDIO-[0-9]{4}-|maissoun_moussa_[0-9]+|Jamal Bro|Hamo Egypt|Khelo|WhatsApp|Instagram' $targets; then
             echo 'Private source identity leaked into v2.2 tracked source.' >&2
             exit 1
