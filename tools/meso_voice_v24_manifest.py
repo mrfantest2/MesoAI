@@ -9,8 +9,12 @@ MESO_ALIASES = {"Maissoun Moussa", "Maissoun", "Meso"}
 LANES = ("ar-casual", "ar-warm", "en-casual")
 
 
+def _path_parts(value: object) -> list[str]:
+    return [part for part in str(value).replace("\\", "/").lower().split("/") if part]
+
+
 def _forbidden_output(path: Path) -> bool:
-    return any(part.lower() in {"htdocs", "www", "web", ".git"} for part in path.parts)
+    return any(part in {"htdocs", "www", "web", ".git"} for part in _path_parts(path))
 
 
 def build_manifest(rows: list[dict[str, Any]]) -> dict[str, Any]:
@@ -36,9 +40,8 @@ def build_manifest(rows: list[dict[str, Any]]) -> dict[str, Any]:
         anchor = pool[lane_index % len(pool)]
         profiles: dict[str, list[str]] = {}
         for idx, label in enumerate("ABCDE"):
-            first = (lane_index * 5 + idx + 1) % len(pool)
-            count = 2 if lang == "ar" else 1
-            profiles[label] = [str(pool[(first + j) % len(pool)]["path"]) for j in range(count)]
+            selected = (lane_index * 5 + idx + 1) % len(pool)
+            profiles[label] = [str(pool[selected]["path"])]
         lanes.append({
             "id": lane_id,
             "language": lang,
@@ -54,10 +57,10 @@ def main() -> int:
     parser.add_argument("--input", required=True)
     parser.add_argument("--output", required=True)
     args = parser.parse_args()
-    out = Path(args.output).resolve()
+    out = Path(args.output)
     if _forbidden_output(out):
         raise SystemExit("refusing non-private output path")
-    rows = json.loads(Path(args.input).read_text(encoding="utf-8"))
+    rows = json.loads(Path(args.input).read_text(encoding="utf-8-sig"))
     manifest = build_manifest(rows)
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text(json.dumps(manifest, ensure_ascii=False, indent=2), encoding="utf-8")
