@@ -1,0 +1,26 @@
+name: MesoAI Voice v2.3 Checks
+
+on:
+  push:
+    branches: [feature/meso-voice-v23]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  voice-v23:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+      - name: Syntax
+        run: |
+          python3 -m py_compile tools/meso_xtts_sweep_v23_client.py
+          php -l web/api/voice-lab-v23.php
+          php -l web/api/voice-lab-v23-audio.php
+          php -l web/voice-lab/index.php
+          node --check web/voice-lab/voice-lab.js
+      - name: Voice v2.3 contract
+        run: php tests/voice_v23_contract.php

@@ -12,6 +12,7 @@ $ErrorActionPreference='Stop'
 $web=Join-Path $RepoRoot 'web'
 $chatSttHelper=Join-Path $RepoRoot 'tools\transcribe_chat_audio.py'
 $chatTtsHelper=Join-Path $RepoRoot 'tools\meso_xtts_client.py'
+$chatTtsSweepV23Helper=Join-Path $RepoRoot 'tools\meso_xtts_sweep_v23_client.py'
 $memoryBootstrap=Join-Path $RepoRoot 'tools\memory_v1_bootstrap.php'
 $pwaIconGenerator=Join-Path $RepoRoot 'deploy\generate_pwa_icons.ps1'
 $personaSeed=Join-Path $RepoRoot 'deploy\persona-v1.seed.json'
@@ -28,7 +29,7 @@ $MesoVoiceAllowedRoot='/data/voice/profiles/khalil'
 $MesoVoiceContainerDir='/data/voice/profiles/khalil/meso/refs'
 $MesoVoiceContainerPath='/data/voice/profiles/khalil/meso/refs/meso_ref_01.wav'
 
-foreach($p in @($web,$chatSttHelper,$chatTtsHelper,$memoryBootstrap,$pwaIconGenerator,$personaSeed,$personaV2Seed,$ChatSttPython,$ChatTtsPython,$PhpCli,$MesoVoiceSource)){if(!(Test-Path -LiteralPath $p)){throw "Required deploy input missing: $p"}}
+foreach($p in @($web,$chatSttHelper,$chatTtsHelper,$chatTtsSweepV23Helper,$memoryBootstrap,$pwaIconGenerator,$personaSeed,$personaV2Seed,$ChatSttPython,$ChatTtsPython,$PhpCli,$MesoVoiceSource)){if(!(Test-Path -LiteralPath $p)){throw "Required deploy input missing: $p"}}
 New-Item -ItemType Directory -Force -Path $Target,$BackupRoot,$ChatSttRuntime,(Join-Path $ChatSttRuntime 'tmp'),$ChatTtsRuntime,$memoryRoot,$personaDir,$personaV2Dir|Out-Null
 
 # Memory v1 is a private SQLite store outside htdocs. Bootstrap initializes only
@@ -95,6 +96,9 @@ Write-Host 'MESO_CHAT_STT_RUNTIME_STAGED=true'
 Copy-Item -LiteralPath $chatTtsHelper -Destination (Join-Path $ChatTtsRuntime 'meso_xtts_client.py') -Force
 & $ChatTtsPython -m py_compile (Join-Path $ChatTtsRuntime 'meso_xtts_client.py');if($LASTEXITCODE -ne 0){throw 'Meso chat XTTS helper compile failed'}
 Write-Host 'MESO_CHAT_XTTS_RUNTIME_STAGED=true'
+Copy-Item -LiteralPath $chatTtsSweepV23Helper -Destination (Join-Path $ChatTtsRuntime 'meso_xtts_sweep_v23_client.py') -Force
+& $ChatTtsPython -m py_compile (Join-Path $ChatTtsRuntime 'meso_xtts_sweep_v23_client.py');if($LASTEXITCODE -ne 0){throw 'Meso Voice v2.3 sweep helper compile failed'}
+Write-Host 'MESO_V23_XTTS_SWEEP_RUNTIME_STAGED=true'
 
 $legacy=Get-ChildItem -LiteralPath $Target -Force -Directory -ErrorAction SilentlyContinue|Where-Object{$_.Name -like '_previous_*'}
 foreach($item in $legacy){$name='legacy-'+$item.Name+'-'+(Get-Date -Format 'yyyyMMdd-HHmmssfff');Move-Item -LiteralPath $item.FullName -Destination (Join-Path $BackupRoot $name) -Force}

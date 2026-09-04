@@ -39,11 +39,11 @@
   }
   function validAudioUrl(value){
     const u=new URL(String(value||''),location.origin);
-    if(u.origin!==location.origin||u.pathname!=='/meso/api/voice-lab-v22-audio.php'||!/^[a-f0-9]{64}$/.test(u.searchParams.get('id')||''))throw new Error('Invalid sweep audio URL');
+    if(u.origin!==location.origin||u.pathname!=='/meso/api/voice-lab-v23-audio.php'||!/^[a-f0-9]{64}$/.test(u.searchParams.get('id')||''))throw new Error('Invalid sweep audio URL');
     return u.pathname+u.search;
   }
   async function post(payload){
-    const response=await fetch('/meso/api/voice-lab-v22.php',{method:'POST',credentials:'same-origin',cache:'no-store',headers:{'Content-Type':'application/json','Accept':'application/json'},body:JSON.stringify(payload)});
+    const response=await fetch('/meso/api/voice-lab-v23.php',{method:'POST',credentials:'same-origin',cache:'no-store',headers:{'Content-Type':'application/json','Accept':'application/json'},body:JSON.stringify(payload)});
     if(response.status===403){location.href='/meso/chat/';throw new Error('Authentication refreshed');}
     const body=await response.json().catch(()=>({}));
     if(!response.ok||body?.ok!==true)throw new Error(body?.error||`HTTP ${response.status}`);
@@ -84,7 +84,9 @@
   async function rejectAll(){await vote('reject');}
   async function init(){
     try{
-      const body=await post({action:'status'});batchCount=Math.max(1,Number(body.batch_count)||1);renderBatch();
+      const body=await post({action:'status'});
+      if(String(body.version||'')!=='meso-v2.3')throw new Error('Unexpected Voice Lab version');
+      batchCount=Math.max(1,Number(body.batch_count)||1);renderBatch();
     }catch(error){statusEl.textContent=`Voice sweep unavailable: ${String(error?.message||error)}`;for(const b of playButtons)b.disabled=true;}
   }
 
