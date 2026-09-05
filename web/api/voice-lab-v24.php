@@ -58,12 +58,11 @@ $manifest=is_file($manifestPath)?json_decode((string)file_get_contents($manifest
 $lanes=is_array($manifest)&&isset($manifest['lanes'])&&is_array($manifest['lanes'])?$manifest['lanes']:[];
 
 if($action==='status'){
-    $public=[];
+    $laneIds=[];
     foreach($lanes as $lane){
-        if(!is_array($lane)||!isset($lane['id'])){continue;}
-        $public[]=['id'=>(string)$lane['id'],'has_anchor'=>isset($lane['anchor_path'])&&meso_v24_private_file((string)$lane['anchor_path'],$root)];
+        if(is_array($lane)&&isset($lane['id'])){$laneIds[]=(string)$lane['id'];}
     }
-    meso_v24_json(200,['ok'=>true,'version'=>'meso-v2.4','batch_count'=>count($public),'labels'=>['A','B','C','D','E'],'lanes'=>$public]);
+    meso_v24_json(200,['ok'=>true,'version'=>'meso-v2.4','batch_count'=>count($laneIds),'labels'=>['A','B','C','D','E'],'lanes'=>$laneIds]);
     exit;
 }
 
