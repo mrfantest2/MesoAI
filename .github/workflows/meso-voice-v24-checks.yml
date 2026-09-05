@@ -1,0 +1,31 @@
+name: MesoAI Voice v2.4 Checks
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [design/meso-voice-v24-chatterbox]
+
+permissions:
+  contents: read
+
+jobs:
+  voice-v24:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install focused test dependency
+        run: python -m pip install -q pytest
+      - name: Syntax
+        run: |
+          python -m py_compile tools/meso_voice_v24_manifest.py tools/meso_chatterbox_v24_client.py
+          php -l web/api/voice-lab-v24.php
+          php -l web/api/voice-lab-v24-audio.php
+          php -l web/voice-lab/index.php
+          node --check web/voice-lab/voice-lab.js
+      - name: Voice v2.4 contracts
+        run: python -m pytest -q tests/test_voice_v24*.py tests/test_meso_chatterbox_v24_client.py
