@@ -96,3 +96,5 @@ jobs:
           }).Count
           if($remaining -gt 0){throw "Obsolete preflight backlog still present after bounded cleanup: $remaining"}
           Write-Host "MESO_V24_STALE_PREFLIGHTS=PASS REMAINING=0 CANCELLED=$($cancelled.Count)"
+
+# trigger retry after workflow registration
