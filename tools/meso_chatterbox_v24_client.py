@@ -10,6 +10,8 @@ from typing import Any
 
 PRIVATE_ROOT_WIN = r"C:\MesoAI\private\voice-lab-v24"
 READY_ROOT_WIN = PRIVATE_ROOT_WIN + r"\ready"
+PRIVATE_ROOT = Path(PRIVATE_ROOT_WIN)
+READY_ROOT = Path(READY_ROOT_WIN)
 RUNTIME_ROOT = "/data/meso-v24"
 
 
