@@ -15,6 +15,8 @@ $chatSttHelper=Join-Path $RepoRoot 'tools\transcribe_chat_audio.py'
 $chatTtsHelper=Join-Path $RepoRoot 'tools\meso_xtts_client.py'
 $chatTtsSweepV23Helper=Join-Path $RepoRoot 'tools\meso_xtts_sweep_v23_client.py'
 $voiceV24Helper=Join-Path $RepoRoot 'tools\meso_chatterbox_v24_client.py'
+$voiceV24Api=Join-Path $web 'api\voice-lab-v24.php'
+$voiceV24AudioApi=Join-Path $web 'api\voice-lab-v24-audio.php'
 $memoryBootstrap=Join-Path $RepoRoot 'tools\memory_v1_bootstrap.php'
 $pwaIconGenerator=Join-Path $RepoRoot 'deploy\generate_pwa_icons.ps1'
 $personaSeed=Join-Path $RepoRoot 'deploy\persona-v1.seed.json'
@@ -31,11 +33,9 @@ $MesoVoiceAllowedRoot='/data/voice/profiles/khalil'
 $MesoVoiceContainerDir='/data/voice/profiles/khalil/meso/refs'
 $MesoVoiceContainerPath='/data/voice/profiles/khalil/meso/refs/meso_ref_01.wav'
 
-foreach($p in @($web,$chatSttHelper,$chatTtsHelper,$chatTtsSweepV23Helper,$voiceV24Helper,$memoryBootstrap,$pwaIconGenerator,$personaSeed,$personaV2Seed,$ChatSttPython,$ChatTtsPython,$PhpCli,$MesoVoiceSource)){if(!(Test-Path -LiteralPath $p)){throw "Required deploy input missing: $p"}}
+foreach($p in @($web,$chatSttHelper,$chatTtsHelper,$chatTtsSweepV23Helper,$voiceV24Helper,$voiceV24Api,$voiceV24AudioApi,$memoryBootstrap,$pwaIconGenerator,$personaSeed,$personaV2Seed,$ChatSttPython,$ChatTtsPython,$PhpCli,$MesoVoiceSource)){if(!(Test-Path -LiteralPath $p)){throw "Required deploy input missing: $p"}}
 New-Item -ItemType Directory -Force -Path $Target,$BackupRoot,$ChatSttRuntime,(Join-Path $ChatSttRuntime 'tmp'),$ChatTtsRuntime,$VoiceV24Runtime,$memoryRoot,$personaDir,$personaV2Dir|Out-Null
 
-# Memory v1 is a private SQLite store outside htdocs. Bootstrap initializes only
-# schema 0 -> 1, preserves existing data, and rejects any newer schema.
 $mods=& $PhpCli -m
 if($LASTEXITCODE -ne 0 -or -not (@($mods) -match '^pdo_sqlite$')){throw 'Meso Memory v1 requires XAMPP PHP pdo_sqlite'}
 $raw=& $PhpCli $memoryBootstrap
@@ -44,8 +44,6 @@ $memoryStatus=($raw -join "`n")|ConvertFrom-Json
 if($memoryStatus.ok -ne $true -or [int]$memoryStatus.schema -ne 1 -or [string]$memoryStatus.memory -ne 'meso-memory-v1'){throw 'Meso Memory v1 bootstrap contract failed'}
 Write-Host 'MESO_MEMORY_V1_READY=true SCHEMA=1'
 
-# Persona v1 remains a safe fallback. Application deploys never overwrite a
-# previously installed private profile.
 if(!(Test-Path -LiteralPath $personaProfile -PathType Leaf)){
   Copy-Item -LiteralPath $personaSeed -Destination $personaProfile -Force
   $p=Get-Content -LiteralPath $personaProfile -Raw|ConvertFrom-Json
@@ -53,8 +51,6 @@ if(!(Test-Path -LiteralPath $personaProfile -PathType Leaf)){
 }
 Write-Host 'MESO_PERSONA_PROFILE_STAGED=true'
 
-# Persona v2 is installed out-of-band as a private corpus. Detect it, verify its
-# integrity, and leave it untouched. Nothing under persona-v2 is copied to htdocs.
 $v2ProfileExists=Test-Path -LiteralPath $personaV2Profile -PathType Leaf
 $v2CorpusExists=Test-Path -LiteralPath $personaV2Corpus -PathType Leaf
 if($v2ProfileExists -xor $v2CorpusExists){throw 'Persona v2 private profile/corpus pair is incomplete'}
@@ -70,7 +66,6 @@ if($v2ProfileExists -and $v2CorpusExists){
   Write-Host 'MESO_PERSONA_V2_DETECTED=false'
 }
 
-# Preserve the reviewed Meso A fallback in the protected XTTS data volume.
 $xttsInspect=& docker inspect khalil-xtts|ConvertFrom-Json
 if($LASTEXITCODE -ne 0 -or !$xttsInspect){throw 'Could not inspect local XTTS container'}
 $dataMount=@($xttsInspect[0].Mounts|Where-Object{$_.Destination -eq '/data'})
