@@ -1,0 +1,98 @@
+name: Meso v2.4 Clear KDT Stale Preflights
+
+on:
+  push:
+    branches:
+      - ops/meso-v24-clear-kdt-backlog
+    paths:
+      - '.github/workflows/meso-v24-clear-kdt-backlog.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: meso-v24-clear-kdt-backlog
+  cancel-in-progress: true
+
+jobs:
+  clear:
+    runs-on: [self-hosted, Windows, X64, khalil-voice]
+    timeout-minutes: 15
+    steps:
+      - name: Fence independent MASTER-PC control runner
+        shell: powershell
+        run: |
+          $ErrorActionPreference='Stop'
+          if($env:COMPUTERNAME -ne 'MASTER-PC'){throw "Expected MASTER-PC, got $env:COMPUTERNAME"}
+          if($env:RUNNER_NAME -notmatch '(?i)voice'){throw "Expected khalil-voice control runner, got $env:RUNNER_NAME"}
+          Write-Host "MESO_V24_BACKLOG_CONTROL_FENCE=PASS RUNNER=$env:RUNNER_NAME"
+
+      - name: Cancel only obsolete merged-branch Voice v3 preflights via local job agent
+        shell: powershell
+        run: |
+          $ErrorActionPreference='Stop'
+          $stateRoot='C:\xampp\private\masterpc-control'
+          $snapshotPath=Join-Path $stateRoot 'snapshot.json'
+          $queueDir=Join-Path $stateRoot 'queue'
+          $processedDir=Join-Path $stateRoot 'processed'
+          foreach($p in @($snapshotPath,$queueDir,$processedDir)){
+            if(-not (Test-Path -LiteralPath $p)){throw "MASTER-PC job-agent path missing: $p"}
+          }
+          $repo='mrfantest2/Khalil-Digital-Twin'
+          $workflow='Khalil Voice v3 Preflight'
+          $branch='design/meso-voice-v24-chatterbox'
+          $cancelled=[System.Collections.Generic.HashSet[long]]::new()
+
+          for($pass=1;$pass -le 6;$pass++){
+            $snapshot=Get-Content -LiteralPath $snapshotPath -Raw | ConvertFrom-Json
+            if([string]$snapshot.auth.state -ne 'ready'){throw "MASTER-PC job agent auth is not ready: $($snapshot.auth.state)"}
+            $targets=@($snapshot.jobs | Where-Object {
+              [string]$_.repository -eq $repo -and
+              [string]$_.workflow -eq $workflow -and
+              [string]$_.branch -eq $branch -and
+              [string]$_.status -in @('queued','in_progress')
+            } | Sort-Object run_id -Unique)
+
+            if($targets.Count -eq 0){
+              Write-Host "MESO_V24_STALE_PREFLIGHTS=PASS REMAINING=0 CANCELLED=$($cancelled.Count)"
+              exit 0
+            }
+
+            Write-Host "MESO_V24_STALE_PASS=$pass TARGETS=$($targets.Count)"
+            foreach($target in $targets){
+              $runId=[long]$target.run_id
+              if($cancelled.Contains($runId)){continue}
+              $id="meso-v24-clear-$runId-$([DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds())"
+              $queuePath=Join-Path $queueDir ($id+'.json')
+              $tmp=$queuePath+'.tmp'
+              [ordered]@{
+                id=$id
+                action='cancel_run'
+                repository=$repo
+                run_id=$runId
+              } | ConvertTo-Json -Compress | Set-Content -LiteralPath $tmp -Encoding UTF8
+              Move-Item -LiteralPath $tmp -Destination $queuePath -Force
+
+              $processed=Join-Path $processedDir ($id+'.json')
+              $deadline=(Get-Date).AddSeconds(75)
+              while((Get-Date) -lt $deadline -and -not (Test-Path -LiteralPath $processed -PathType Leaf)){
+                Start-Sleep -Seconds 2
+              }
+              if(-not (Test-Path -LiteralPath $processed -PathType Leaf)){throw "Job-agent cancellation timed out for run $runId"}
+              $result=Get-Content -LiteralPath $processed -Raw | ConvertFrom-Json
+              if([string]$result.result -ne 'success'){throw "Job-agent cancellation failed for run $runId: $($result.detail)"}
+              [void]$cancelled.Add($runId)
+              Write-Host "MESO_V24_STALE_CANCEL=PASS RUN_ID=$runId"
+            }
+            Start-Sleep -Seconds 8
+          }
+
+          $final=Get-Content -LiteralPath $snapshotPath -Raw | ConvertFrom-Json
+          $remaining=@($final.jobs | Where-Object {
+            [string]$_.repository -eq $repo -and
+            [string]$_.workflow -eq $workflow -and
+            [string]$_.branch -eq $branch -and
+            [string]$_.status -in @('queued','in_progress')
+          }).Count
+          if($remaining -gt 0){throw "Obsolete preflight backlog still present after bounded cleanup: $remaining"}
+          Write-Host "MESO_V24_STALE_PREFLIGHTS=PASS REMAINING=0 CANCELLED=$($cancelled.Count)"
