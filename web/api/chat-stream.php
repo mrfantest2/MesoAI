@@ -5,7 +5,7 @@ require_once dirname(__DIR__) . DIRECTORY_SEPARATOR . 'includes' . DIRECTORY_SEP
 function meso_chat_stream_preflight_fail(Throwable $e): never {
     $status=meso_chat_error_status($e);
     $code=$e->getMessage();
-    if($status>=500&&!in_array($code,['rate_limited','provider_not_configured','invalid_local_provider','curl_unavailable','rate_limit_unavailable','memory_unavailable','provider_connection_failed','provider_error','empty_provider_response'],true)) $code='internal_error';
+    if($status>=500&&!in_array($code,['rate_limited','provider_not_configured','invalid_local_provider','invalid_model','curl_unavailable','rate_limit_unavailable','memory_unavailable','provider_connection_failed','provider_error','empty_provider_response'],true)) $code='internal_error';
     http_response_code($status);
     header('Content-Type: application/json; charset=utf-8');
     header('Cache-Control: no-store, private');
@@ -48,6 +48,7 @@ try {
     $context=meso_chat_context_for((string)$prepared['conversation_id'],(string)$prepared['message']);
     $userMessage=meso_chat_persist_user_turn($prepared);
     $cfg=meso_chat_provider_config();
+    $requestedModel=meso_chat_requested_model($body,(string)$cfg['provider'],(string)$cfg['model']);
 } catch(InvalidArgumentException $e) {
     meso_chat_stream_preflight_fail($e);
 } catch(Throwable $e) {
@@ -65,7 +66,7 @@ header('Connection: keep-alive');
 while(ob_get_level()>0) @ob_end_flush();
 
 $provider=(string)$cfg['provider'];
-$model=(string)$cfg['model'];
+$model=(string)$requestedModel;
 $resultBase=meso_chat_result_base($prepared,$context,$userMessage);
 meso_chat_sse_event('meta',array_merge($resultBase,['provider'=>$provider,'model'=>$model]));
 

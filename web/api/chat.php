@@ -14,7 +14,7 @@ function meso_chat_json_fail(Throwable $e): never {
     $safe=[
         'invalid_conversation_id','conversation_not_found','conversation_archived','invalid_message',
         'invalid_regenerate_message_id','regenerate_message_not_found','regenerate_message_not_user',
-        'rate_limited','provider_not_configured','invalid_local_provider','curl_unavailable',
+        'rate_limited','provider_not_configured','invalid_local_provider','invalid_model','curl_unavailable',
         'rate_limit_unavailable','memory_unavailable','provider_connection_failed','provider_error','empty_provider_response'
     ];
     if(!in_array($code,$safe,true)) $code=$status>=500?'internal_error':'invalid_request';
@@ -53,7 +53,7 @@ try {
 try {
     $cfg=meso_chat_provider_config();
     $provider=(string)$cfg['provider'];
-    $model=(string)$cfg['model'];
+    $model=meso_chat_requested_model($body,(string)$cfg['provider'],(string)$cfg['model']);
     $reply='';
     $responseModel=$model;
 

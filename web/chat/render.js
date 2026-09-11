@@ -111,12 +111,15 @@
     area.remove();
   }
 
-  function actionButton(label,title){
+  const ICON_COPY='<svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="9" width="12" height="12" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/></svg>';
+  const ICON_REGEN='<svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12a9 9 0 1 1-2.64-6.36M21 3v6h-6"/></svg>';
+  function actionButton(label,title,icon){
     const button=document.createElement('button');
     button.type='button';
     button.className='messageAction';
-    button.textContent=label;
     button.title=title;
+    if(icon){const span=document.createElement('span');span.setAttribute('aria-hidden','true');span.innerHTML=icon;button.appendChild(span);}
+    button.appendChild(document.createTextNode(label));
     return button;
   }
 
@@ -129,7 +132,7 @@
     const tools=document.createElement('div');
     tools.className='messageActions';
 
-    const copy=actionButton('Copy','Copy reply');
+    const copy=actionButton('Copy','Copy reply',ICON_COPY);
     copy.addEventListener('click',async()=>{
       const before=copy.textContent;
       try{await copyText(plain);copy.textContent='Copied';}
@@ -139,7 +142,7 @@
     tools.appendChild(copy);
 
     if(typeof metadata.onRegenerate==='function'){
-      const regenerate=actionButton('Regenerate','Regenerate reply from the same user turn');
+      const regenerate=actionButton('Regenerate','Regenerate reply from the same user turn',ICON_REGEN);
       regenerate.addEventListener('click',()=>metadata.onRegenerate());
       tools.appendChild(regenerate);
     }

@@ -7,8 +7,27 @@
   if(!messages||!input||!send||!status)return;
 
   if(!document.querySelector('link[data-meso-chat-v2]')){
-    const css=document.createElement('link');css.rel='stylesheet';css.href='/meso/chat/chat-v2.css';css.dataset.mesoChatV2='1';document.head.appendChild(css);
+    const css=document.createElement('link');css.rel='stylesheet';css.href='/meso/chat/chat-v2.css?v=20260910';css.dataset.mesoChatV2='1';document.head.appendChild(css);
   }
+
+  const AI_VARIANT_KEY='meso.aiVariant.v1';
+  const LITE_MODEL='qwen2.5:3b';
+  const ICON_MIC='<svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="2" width="6" height="12" rx="3"/><path d="M5 10a7 7 0 0 0 14 0M12 19v3"/></svg>';
+  const ICON_STOP='<svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor" aria-hidden="true"><rect x="6" y="6" width="12" height="12" rx="2"/></svg>';
+  const modelToggle=$('modelToggle');
+  function getAiVariant(){try{return localStorage.getItem(AI_VARIANT_KEY)==='lite'?'lite':'standard';}catch(_){return 'standard';}}
+  let aiVariant=getAiVariant();
+  function requestedModel(){return aiVariant==='lite'?LITE_MODEL:'';}
+  function refreshModelToggle(){
+    if(!modelToggle)return;
+    const lite=aiVariant==='lite';
+    modelToggle.textContent=lite?'⚡ Lite':'Standard';
+    modelToggle.setAttribute('aria-pressed',lite?'true':'false');
+    modelToggle.title=lite?`Lite AI (${LITE_MODEL}) — faster replies`:'Standard AI — full quality';
+    const strip=document.querySelector('[data-mobile-state="model"]');
+    if(strip)strip.textContent=lite?'AI · Lite':'AI · Standard';
+  }
+  function fmtTime(ts){const d=ts?new Date(Number(ts)*1000):new Date();if(Number.isNaN(d.getTime()))return '';return d.toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'});}
 
   let recorder=null,stream=null,chunks=[],autoStopTimer=null,recording=false,transcribing=false;
   let activePersona='meso-v1',activeGrounding='style-only',activeEvidenceCount=0,activeConversationId='',bootstrapped=false;
@@ -16,7 +35,7 @@
 
   const validId=(value)=>/^[a-f0-9]{64}$/.test(String(value||''));
   const stateJsonHeaders={'Content-Type':'application/json','Accept':'application/json'};
-  const baseStatus=()=>`Private · Persona ${activePersona} · Historical evidence ${activeEvidenceCount} · Conversation memory MESO v1 · STT local · Voice Meso`;
+  const baseStatus=()=>`Private · Persona ${activePersona} · Historical evidence ${activeEvidenceCount} · Conversation memory MESO v1 · STT local · Voice Meso${aiVariant==='lite'?' · AI Lite':''}`;
 
   function ensureStopButton(){
     let button=$('stopGeneration');
@@ -57,7 +76,12 @@
   function addMessage(role,text,meta='',options={}){
     const empty=messages.querySelector('.empty');if(empty)messages.replaceChildren();
     const card=document.createElement('div');card.className=`msg ${role}`;
-    const label=document.createElement('div');label.className='role';label.textContent=meta?`${role} · ${meta}`:role;
+    const label=document.createElement('div');label.className='role';
+    label.textContent=role==='user'?'You':role==='assistant'?'Assistant':role;
+    if(meta)label.title=meta;
+    const time=document.createElement('span');time.className='msgTime';
+    time.textContent=fmtTime(options.created_at);
+    label.appendChild(time);
     const body=document.createElement('div');body.className='messageBody';
     const plain=String(text??'');
     if(role==='assistant'&&typeof window.mesoRenderAssistant==='function'&&options.render!==false)window.mesoRenderAssistant(body,plain);else body.textContent=plain;
@@ -67,10 +91,10 @@
     messages.appendChild(card);messages.scrollTop=messages.scrollHeight;return {card,body,label};
   }
 
-  function createStreamingCard(){const view=addMessage('assistant','',`streaming · persona ${activePersona}`,{actions:false,render:false});view.card.classList.add('streaming');return view;}
+  function createStreamingCard(){const view=addMessage('assistant','','',{actions:false,render:false});view.card.classList.add('streaming');return view;}
   function finalizeStreamingCard(view,text,meta,userMessageId){
     if(!view)return addMessage('assistant',text,meta,{userMessageId});
-    view.card.classList.remove('streaming');view.label.textContent=meta?`assistant · ${meta}`:'assistant';
+    view.card.classList.remove('streaming');view.label.childNodes[0].textContent='Assistant';if(meta)view.label.title=meta;
     view.body.replaceChildren();
     if(typeof window.mesoRenderAssistant==='function')window.mesoRenderAssistant(view.body,text);else view.body.textContent=text;
     view.card.dataset.plainText=text;
@@ -85,7 +109,7 @@
     setBusy(active,label);
   }
   function stopTracks(){if(stream)for(const track of stream.getTracks())track.stop();stream=null;}
-  function resetRecorderUi(){recording=false;clearTimeout(autoStopTimer);autoStopTimer=null;if(mic){mic.classList.remove('recording');mic.setAttribute('aria-pressed','false');mic.textContent='🎙';}stopTracks();}
+  function resetRecorderUi(){recording=false;clearTimeout(autoStopTimer);autoStopTimer=null;if(mic){mic.classList.remove('recording');mic.setAttribute('aria-pressed','false');mic.innerHTML=ICON_MIC;}stopTracks();}
 
   function applyPersonaState(state){
     activePersona=String(state?.version||'off');activeGrounding=String(state?.grounding||'off');activeEvidenceCount=Number(state?.record_count||0);
@@ -99,7 +123,11 @@
     }
     const empty=messages.querySelector('.empty');
     if(empty){const strong=empty.querySelector('strong'),detail=empty.querySelector('div:last-child');if(strong)strong.textContent=activePersona==='meso-v2'?'Meso Persona v2 is ready':activePersona==='meso-v1'?'Meso Persona v1 is ready':'MesoAI chat is ready';if(detail)detail.textContent=activeGrounding==='evidence-retrieval'?`Historical evidence retrieval is available from ${activeEvidenceCount.toLocaleString()} Maissoun-authored records. Conversation memory remains separate.`:'Persona and Conversation memory are separate private stores.';}
-    const composerNote=document.querySelector('.composer small');if(composerNote)composerNote.textContent='Local STT + Meso voice · Persona · Historical evidence · Conversation memory are independent private state';
+    const composerNote=document.querySelector('.composer small');if(composerNote)composerNote.textContent='Private · Local STT + Meso voice';
+    const strip=document.getElementById('mobileState');if(strip)strip.hidden=false;
+    const mobilePersona=document.querySelector('[data-mobile-state="persona"]');if(mobilePersona)mobilePersona.textContent=`Persona · ${activePersona==='off'?'OFF':activePersona.toUpperCase()}`;
+    const mobileMemory=document.querySelector('[data-mobile-state="memory"]');if(mobileMemory){const enabled=state?.memory_enabled!==false;mobileMemory.textContent=`Memory · ${enabled?'MESO v1':'OFF'}`;mobileMemory.classList.toggle('good',enabled);}
+    refreshModelToggle();
     if(!send.disabled)status.textContent=baseStatus();
   }
 
@@ -114,7 +142,7 @@
     const response=await fetch(`/meso/api/messages.php?conversation_id=${encodeURIComponent(conversationId)}&limit=100`,{credentials:'same-origin',cache:'no-store',headers:{Accept:'application/json'}});const body=await readJson(response);if(!response.ok||!body.ok)throw new Error(body.error||`HTTP ${response.status}`);
     messages.replaceChildren();const items=Array.isArray(body.items)?body.items:[];if(items.length===0){showEmpty('Private conversation ready','Conversation memory v1 is ON. Historical Persona evidence remains a separate store.');return;}
     let pendingUserMessageId='';
-    for(const item of items){const role=String(item?.role||'');if(role!=='user'&&role!=='assistant')continue;const itemId=String(item?.id||'');if(role==='user'){pendingUserMessageId=validId(itemId)?itemId:'';addMessage(role,String(item?.content||''),messageMeta(item));}else{addMessage(role,String(item?.content||''),messageMeta(item),{userMessageId:pendingUserMessageId});pendingUserMessageId='';}}
+    for(const item of items){const role=String(item?.role||'');if(role!=='user'&&role!=='assistant')continue;const itemId=String(item?.id||'');const created=Number(item?.created_at||0)||0;if(role==='user'){pendingUserMessageId=validId(itemId)?itemId:'';addMessage(role,String(item?.content||''),messageMeta(item),{created_at:created});}else{addMessage(role,String(item?.content||''),messageMeta(item),{userMessageId:pendingUserMessageId,created_at:created});pendingUserMessageId='';}}
   }
   async function activateConversation(conversationId){const id=String(conversationId||'');if(!validId(id))throw new Error('invalid_conversation_id');if(recording||transcribing||generationController)throw new Error('conversation_busy');setBusy(true,'Loading private conversation…');try{await loadMessages(id);activeConversationId=id;storeConversationId(id);emitConversationChanged();return id;}finally{setBusy(false);autoHeight();input.focus();}}
   async function ensureConversation(){const stored=getStoredConversationId();if(stored){try{await loadMessages(stored);activeConversationId=stored;emitConversationChanged();return stored;}catch(error){if(error?.message==='chat_auth_required')throw error;storeConversationId('');}}const id=await createConversation();await loadMessages(id);return id;}
@@ -138,12 +166,13 @@
     if(validId(String(payload.regenerate_message_id||'')))fallbackPayload.regenerate_message_id=String(payload.regenerate_message_id);
     else if(validId(userMessageId))fallbackPayload.regenerate_message_id=userMessageId;
     else fallbackPayload.message=String(payload.message||'');
+    const liteModel=requestedModel();if(liteModel)fallbackPayload.model=liteModel;
     const response=await fetch('/meso/api/chat.php',{method:'POST',credentials:'same-origin',cache:'no-store',headers:stateJsonHeaders,body:JSON.stringify(fallbackPayload)});const body=await readJson(response);if(!response.ok||!body.ok)throw new Error(body.message||body.error||`HTTP ${response.status}`);return body;
   }
 
   async function generate({message='',regenerateMessageId=''}){
     if(generationController||!validId(activeConversationId))return;
-    const payload={conversation_id:activeConversationId};if(validId(regenerateMessageId))payload.regenerate_message_id=regenerateMessageId;else payload.message=message;
+    const payload={conversation_id:activeConversationId};if(validId(regenerateMessageId))payload.regenerate_message_id=regenerateMessageId;else payload.message=message;const liteModel=requestedModel();if(liteModel)payload.model=liteModel;
     const controller=new AbortController();generationController=controller;generationStopped=false;
     let deltaAccepted=false,fallbackEligible=true,userMessageId=validId(regenerateMessageId)?regenerateMessageId:'',streamText='',partial=null,donePayload=null;
     setGenerationUi(true,`Streaming · Persona ${activePersona} · Conversation memory v1…`);
@@ -183,13 +212,15 @@
 
   function bestRecorderMime(){if(!window.MediaRecorder||typeof MediaRecorder.isTypeSupported!=='function')return '';return ['audio/webm;codecs=opus','audio/ogg;codecs=opus','audio/mp4','audio/webm'].find(v=>MediaRecorder.isTypeSupported(v))||'';}
   async function transcribeBlob(blob){transcribing=true;setBusy(true,'Transcribing locally…');try{const response=await fetch('/meso/api/transcribe.php',{method:'POST',credentials:'same-origin',cache:'no-store',headers:{'Content-Type':blob.type||'audio/webm','Accept':'application/json'},body:blob});const body=await readJson(response);if(!response.ok||!body.ok||!String(body.transcript||'').trim())throw new Error(body.error||`HTTP ${response.status}`);input.value=String(body.transcript).trim();autoHeight();transcribing=false;setBusy(false,`Transcribed locally${body.language?` · ${body.language}`:''}`);await sendText();}catch(error){if(error?.message!=='chat_auth_required')addMessage('assistant',`Microphone transcription error: ${error.message}`,'local STT',{actions:false});}finally{transcribing=false;if(!send.disabled)status.textContent=baseStatus();if(mic)mic.disabled=false;}}
-  async function startRecording(){if(!mic||recording||transcribing||generationController||send.disabled)return;if(!navigator.mediaDevices?.getUserMedia||!window.MediaRecorder){addMessage('assistant','This browser does not provide microphone recording support.','local STT',{actions:false});return;}try{stream=await navigator.mediaDevices.getUserMedia({audio:true});const mime=bestRecorderMime();recorder=mime?new MediaRecorder(stream,{mimeType:mime}):new MediaRecorder(stream);chunks=[];recorder.addEventListener('dataavailable',e=>{if(e.data&&e.data.size>0)chunks.push(e.data);});recorder.addEventListener('stop',async()=>{const type=recorder?.mimeType||mime||'audio/webm';const blob=new Blob(chunks,{type});chunks=[];recorder=null;resetRecorderUi();if(!blob.size){addMessage('assistant','No microphone audio was captured.','local STT',{actions:false});setBusy(false);return;}await transcribeBlob(blob);},{once:true});recorder.start(250);recording=true;mic.classList.add('recording');mic.setAttribute('aria-pressed','true');mic.textContent='■';send.disabled=true;input.disabled=true;status.textContent='Recording locally… tap ■ to stop';autoStopTimer=setTimeout(()=>stopRecording(),60000);}catch(error){resetRecorderUi();setBusy(false);addMessage('assistant',`Microphone unavailable: ${error.message}`,'local STT',{actions:false});}}
+  async function startRecording(){if(!mic||recording||transcribing||generationController||send.disabled)return;if(!navigator.mediaDevices?.getUserMedia||!window.MediaRecorder){addMessage('assistant','This browser does not provide microphone recording support.','local STT',{actions:false});return;}try{stream=await navigator.mediaDevices.getUserMedia({audio:true});const mime=bestRecorderMime();recorder=mime?new MediaRecorder(stream,{mimeType:mime}):new MediaRecorder(stream);chunks=[];recorder.addEventListener('dataavailable',e=>{if(e.data&&e.data.size>0)chunks.push(e.data);});recorder.addEventListener('stop',async()=>{const type=recorder?.mimeType||mime||'audio/webm';const blob=new Blob(chunks,{type});chunks=[];recorder=null;resetRecorderUi();if(!blob.size){addMessage('assistant','No microphone audio was captured.','local STT',{actions:false});setBusy(false);return;}await transcribeBlob(blob);},{once:true});recorder.start(250);recording=true;mic.classList.add('recording');mic.setAttribute('aria-pressed','true');mic.innerHTML=ICON_STOP;send.disabled=true;input.disabled=true;status.textContent='Recording locally… tap ■ to stop';autoStopTimer=setTimeout(()=>stopRecording(),60000);}catch(error){resetRecorderUi();setBusy(false);addMessage('assistant',`Microphone unavailable: ${error.message}`,'local STT',{actions:false});}}
   function stopRecording(){if(!recording||!recorder)return;try{if(recorder.state!=='inactive')recorder.stop();}catch(error){resetRecorderUi();setBusy(false);addMessage('assistant',`Could not stop microphone recording: ${error.message}`,'local STT',{actions:false});}}
 
   async function bootstrapChat(){setBusy(true,'Loading private conversation…');try{await loadPersonaState();await ensureConversation();bootstrapped=true;setBusy(false);autoHeight();input.focus();}catch(error){if(error?.message!=='chat_auth_required'){showEmpty('Conversation unavailable','MesoAI could not initialize private Conversation memory v1.');status.textContent=`Memory unavailable · ${error.message}`;}}}
 
   window.mesoActiveConversationId=()=>activeConversationId;
   window.mesoChatBridge={activateConversation,newConversation:newChat,reloadActive:()=>validId(activeConversationId)?activateConversation(activeConversationId):Promise.reject(new Error('invalid_conversation_id'))};
+  if(modelToggle)modelToggle.addEventListener('click',()=>{if(generationController||recording||transcribing)return;aiVariant=aiVariant==='lite'?'standard':'lite';try{localStorage.setItem(AI_VARIANT_KEY,aiVariant);}catch(_){}refreshModelToggle();if(!send.disabled)status.textContent=baseStatus();});
+  refreshModelToggle();
   send.addEventListener('click',sendText);
   if(stopButton)stopButton.addEventListener('click',stopGeneration);
   if(newChatButton)newChatButton.addEventListener('click',()=>{const controller=window.mesoConversationController;if(controller&&typeof controller.newConversation==='function')controller.newConversation().catch(error=>addMessage('assistant',`Could not create conversation: ${error.message}`,'system',{actions:false}));else newChat();});
