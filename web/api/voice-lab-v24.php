@@ -54,7 +54,9 @@ $action=strtolower(trim((string)($body['action']??'status')));
 $root=meso_private_root().'\\voice-lab-v24';
 $ready=$root.'\\ready';
 $manifestPath=$root.'\\manifest.json';
-$manifest=is_file($manifestPath)?json_decode((string)file_get_contents($manifestPath),true):null;
+$manifestRaw=is_file($manifestPath)?(string)file_get_contents($manifestPath):'';
+if(substr($manifestRaw,0,3)==="\xEF\xBB\xBF"){$manifestRaw=substr($manifestRaw,3);}
+$manifest=$manifestRaw!==''?json_decode($manifestRaw,true):null;
 $lanes=is_array($manifest)&&isset($manifest['lanes'])&&is_array($manifest['lanes'])?$manifest['lanes']:[];
 
 if($action==='status'){
