@@ -1,0 +1,59 @@
+name: KDT Runner Labels Temp
+
+on:
+  push:
+    branches: ["main"]
+    paths: [".github/workflows/kdt-runner-labels-temp.yml"]
+
+permissions:
+  contents: read
+
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - name: Inspect KDT repo runner registration
+        shell: bash
+        run: |
+          set -euo pipefail
+          BASE='https://fantest.win/runner'
+          test "$(curl -sS -o /dev/null -w '%{http_code}' "$BASE/api.php?action=ping")" = 200
+          curl -fsSL -c cookies.txt -b cookies.txt "$BASE/" -o runner.html
+          CSRF="$(python - <<'PY'
+          import re,json
+          t=open('runner.html',encoding='utf-8',errors='replace').read();m=re.search(r'window\.FANTESTOS_RUNNER_CSRF=(.*?);',t)
+          if not m: raise SystemExit('CSRF marker missing')
+          print(json.loads(m.group(1)))
+          PY
+          )"
+          cat > inspect.ps1 <<'PS1'
+          $ErrorActionPreference='Stop'
+          $token=''
+          foreach($n in @('KHALIL_MASTERPC_GITHUB_TOKEN','KHALIL_GITHUB_WRITE_TOKEN')){foreach($scope in @('Process','Machine')){$v=[Environment]::GetEnvironmentVariable($n,$scope);if($v){$token=$v.Trim();break}};if($token){break}}
+          $f='C:\ProgramData\KhalilDigitalTwin\secrets\masterpc-github-token.txt';if(-not $token -and(Test-Path $f)){$token=(Get-Content $f -Raw).Trim()}
+          if(-not $token){throw 'Protected GitHub auth unavailable.'}
+          $h=@{Authorization="Bearer $token";Accept='application/vnd.github+json';'X-GitHub-Api-Version'='2022-11-28';'User-Agent'='KDT-Runner-Inspect'}
+          $r=Invoke-RestMethod 'https://api.github.com/repos/mrfantest2/Khalil-Digital-Twin/actions/runners?per_page=100' -Headers $h -TimeoutSec 20
+          Write-Host "KDT_RUNNER_COUNT=$($r.total_count)"
+          foreach($x in @($r.runners)){$labels=@($x.labels|ForEach-Object{$_.name});Write-Host ("KDT_RUNNER name={0} status={1} busy={2} labels={3}" -f $x.name,$x.status,$x.busy,($labels -join ','))}
+          Write-Host 'KDT_RUNNER_INSPECT=PASS'
+          PS1
+          curl -fsS -b cookies.txt -c cookies.txt -X POST "$BASE/api.php" --data-urlencode 'action=start' --data-urlencode "csrf=$CSRF" --data-urlencode 'runtime=powershell' --data-urlencode 'execution_mode=background' --data-urlencode 'working_directory=C:\' --data-urlencode 'timeout=120' --data-urlencode 'command@inspect.ps1' -o start.json
+          JOB_ID="$(python - <<'PY'
+          import json
+          d=json.load(open('start.json'))
+          if not d.get('ok') or not d.get('job_id'): raise SystemExit('queue failed')
+          print(d['job_id'])
+          PY
+          )"
+          out=0;err=0;:>stdout.log;:>stderr.log;final=''
+          for i in $(seq 1 80); do
+            curl -fsS -b cookies.txt -c cookies.txt "$BASE/api.php?action=status&csrf=$CSRF&job_id=$JOB_ID&out_offset=$out&err_offset=$err" -o status.json
+            python - <<'PY' > parsed.env
+          import json,shlex
+          d=json.load(open('status.json'));print('STATUS='+shlex.quote(str(d.get('status',''))));print('OUT_OFFSET='+str(int(d.get('out_offset',0))));print('ERR_OFFSET='+str(int(d.get('err_offset',0))));open('chunk-out','wb').write(str(d.get('stdout_chunk','')).encode());open('chunk-err','wb').write(str(d.get('stderr_chunk','')).encode())
+          PY
+            . ./parsed.env;out=$OUT_OFFSET;err=$ERR_OFFSET;cat chunk-out >>stdout.log;cat chunk-err >>stderr.log;case "$STATUS" in completed|failed|cancelled|timed_out|output_limited) final="$STATUS";break;;esac;sleep 1
+          done
+          cat stdout.log;if [ -s stderr.log ];then echo '=== STDERR ===';cat stderr.log;fi;echo "FINAL=$final";test "$final" = completed;grep -q 'KDT_RUNNER_INSPECT=PASS' stdout.log
