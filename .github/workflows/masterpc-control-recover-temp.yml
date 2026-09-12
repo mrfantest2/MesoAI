@@ -1,4 +1,4 @@
-name: MASTER-PC Control Recover Temp
+name: MASTER-PC KDT Control Recover Temp
 
 on:
   push:
@@ -13,7 +13,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 12
     steps:
-      - name: Recover control lane via FantestOS bridge
+      - name: Restart KDT control worker and verify ping
         shell: bash
         run: |
           set -euo pipefail
@@ -29,56 +29,31 @@ jobs:
           )"
           cat > repair.ps1 <<'PS1'
           $ErrorActionPreference='Stop'
-          function OutK([string]$k,[object]$v){Write-Host ("{0}={1}" -f $k,$v)}
-          # 1) Restore dedicated CCC control runner only.
-          $ccc='actions.runner.mrfantest2-control-command-center.MASTER-PC-CCC-CONTROL'
-          $svc=Get-Service -Name $ccc -ErrorAction Stop
-          OutK 'CCC_RUNNER_BEFORE' $svc.Status
-          if($svc.Status -ne 'Running'){Start-Service -Name $ccc -ErrorAction Stop}
-          $svc.WaitForStatus('Running',[TimeSpan]::FromSeconds(20))
-          OutK 'CCC_RUNNER_AFTER' (Get-Service -Name $ccc).Status
-
-          # 2) Prove KDT queue worker processes a harmless diagnostic_ping command.
-          $state='C:\xampp\private\masterpc-control'; $q=Join-Path $state 'queue'; $p=Join-Path $state 'processed'
-          New-Item -ItemType Directory -Force -Path $q,$p | Out-Null
-          $id='chatgpt_ping_'+(Get-Date -Format 'yyyyMMdd_HHmmss_fff')
-          $cmd=[ordered]@{id=$id;action='diagnostic_ping';repository=''}
-          $tmp=Join-Path $q ($id+'.json.tmp'); $dst=Join-Path $q ($id+'.json'); $done=Join-Path $p ($id+'.json')
-          $cmd|ConvertTo-Json -Compress|Set-Content -LiteralPath $tmp -Encoding UTF8; Move-Item $tmp $dst -Force
-          $deadline=(Get-Date).AddSeconds(25)
+          function O([string]$k,[object]$v){Write-Host ("{0}={1}" -f $k,$v)}
+          $task='KDT MasterPC Job Control'
+          $before=Get-ScheduledTask -TaskName $task -ErrorAction Stop
+          O 'KDT_TASK_BEFORE' $before.State
+          Stop-ScheduledTask -TaskName $task -ErrorAction SilentlyContinue
+          Start-Sleep -Seconds 2
+          Start-ScheduledTask -TaskName $task -ErrorAction Stop
+          Start-Sleep -Seconds 3
+          O 'KDT_TASK_AFTER' (Get-ScheduledTask -TaskName $task).State
+          $q='C:\xampp\private\masterpc-control\queue';$p='C:\xampp\private\masterpc-control\processed'
+          New-Item -ItemType Directory -Force -Path $q,$p|Out-Null
+          $id='fullflight_ping_'+(Get-Date -Format 'yyyyMMdd_HHmmss_fff')
+          $tmp=Join-Path $q ($id+'.json.tmp');$dst=Join-Path $q ($id+'.json');$done=Join-Path $p ($id+'.json')
+          $json=(@{id=$id;action='diagnostic_ping';repository=''}|ConvertTo-Json -Compress)
+          [IO.File]::WriteAllText($tmp,$json,(New-Object Text.UTF8Encoding($false)));Move-Item $tmp $dst -Force
+          $deadline=(Get-Date).AddSeconds(60)
           while((Get-Date)-lt $deadline -and -not(Test-Path $done)){Start-Sleep -Milliseconds 500}
-          if(-not(Test-Path $done)){throw 'KDT diagnostic_ping was not processed.'}
+          if(-not(Test-Path $done)){throw 'KDT diagnostic_ping was not processed after worker restart.'}
           $r=Get-Content $done -Raw|ConvertFrom-Json
-          OutK 'KDT_PING_RESULT' $r.result; OutK 'KDT_PING_DETAIL' $r.detail
+          O 'KDT_PING_RESULT' $r.result;O 'KDT_PING_DETAIL' $r.detail
           if($r.result -ne 'success' -or $r.detail -ne 'pong'){throw 'KDT diagnostic_ping failed.'}
-
-          # 3) Verify core local HTTP/data contracts.
-          $mp=Invoke-WebRequest 'http://127.0.0.1/masterpc/' -UseBasicParsing -TimeoutSec 8
-          OutK 'MASTERPC_HTTP' $mp.StatusCode
-          $mh=Invoke-RestMethod 'http://127.0.0.1:8784/api/v1/health' -TimeoutSec 8
-          OutK 'MPCC_HEALTH_STATE' $mh.status
-          $cs=Invoke-RestMethod 'http://127.0.0.1:8766/api/status' -TimeoutSec 8
-          OutK 'CCC_AGENT_ONLINE' $cs.agent_online; OutK 'CCC_SCOPE' $cs.scope; OutK 'CCC_RUNNER_ISOLATION' $cs.runner_isolation
-
-          # 4) Resolve local protected GitHub auth without printing it, then inspect registered repo runners.
-          $token=''
-          foreach($n in @('KHALIL_MASTERPC_GITHUB_TOKEN','KHALIL_GITHUB_WRITE_TOKEN')){foreach($scope in @('Process','Machine')){$v=[Environment]::GetEnvironmentVariable($n,$scope);if($v){$token=$v.Trim();break}};if($token){break}}
-          $tf='C:\ProgramData\KhalilDigitalTwin\secrets\masterpc-github-token.txt'
-          if(-not $token -and (Test-Path $tf)){$token=(Get-Content $tf -Raw).Trim()}
-          if(-not $token){$gh=Get-Command gh -ErrorAction SilentlyContinue;if($gh){$old1=$env:GH_TOKEN;$old2=$env:GITHUB_TOKEN;try{$env:GH_TOKEN=$null;$env:GITHUB_TOKEN=$null;$token=(& $gh.Source auth token 2>$null|Out-String).Trim()}finally{$env:GH_TOKEN=$old1;$env:GITHUB_TOKEN=$old2}}}
-          if(-not $token){throw 'Protected GitHub authentication unavailable on MASTER-PC.'}
-          $h=@{Authorization="Bearer $token";Accept='application/vnd.github+json';'X-GitHub-Api-Version'='2022-11-28';'User-Agent'='MASTER-PC-Recovery'}
-          $rr=Invoke-RestMethod 'https://api.github.com/repos/mrfantest2/FantestADBMonitor/actions/runners?per_page=100' -Headers $h -TimeoutSec 20
-          OutK 'ADBMON_RUNNER_COUNT' $rr.total_count
-          $target=@()
-          foreach($x in @($rr.runners)){
-            $labels=@($x.labels|ForEach-Object{$_.name})
-            Write-Host ("ADBMON_RUNNER name={0} status={1} busy={2} labels={3}" -f $x.name,$x.status,$x.busy,($labels -join ','))
-            if($labels -contains 'khalil-master-pc'){$target+=$x}
-          }
-          OutK 'KHALIL_TARGET_COUNT' $target.Count
-          if($target.Count -eq 1){OutK 'KHALIL_TARGET_NAME' $target[0].name;OutK 'KHALIL_TARGET_STATUS' $target[0].status;OutK 'KHALIL_TARGET_BUSY' $target[0].busy}
-          Write-Host 'MASTERPC_CONTROL_RECOVERY=PASS'
+          foreach($u in @('http://127.0.0.1/masterpc/','http://127.0.0.1:8784/api/v1/health','http://127.0.0.1:8766/api/status','http://127.0.0.1:4096/')){try{$x=Invoke-WebRequest $u -UseBasicParsing -TimeoutSec 8;Write-Host "LOCAL_HTTP url=$u status=$($x.StatusCode)"}catch{throw "Local endpoint failed: $u :: $($_.Exception.Message)"}}
+          if(Test-Path 'C:\xampp\private\masterpc-control\snapshot.json'){$s=Get-Content 'C:\xampp\private\masterpc-control\snapshot.json' -Raw|ConvertFrom-Json;O 'KDT_SNAPSHOT_GENERATED' $s.generated_at;O 'KDT_RUNNER_ONLINE' $s.runner.online;O 'KDT_RUNNER_BUSY' $s.runner.busy}
+          O 'KDT_QUEUE_REMAINING' (@(Get-ChildItem $q -Filter '*.json' -File -ErrorAction SilentlyContinue).Count)
+          Write-Host 'KDT_CONTROL_RECOVERY=PASS'
           PS1
           curl -fsS -b cookies.txt -c cookies.txt -X POST "$BASE/api.php" --data-urlencode 'action=start' --data-urlencode "csrf=$CSRF" --data-urlencode 'runtime=powershell' --data-urlencode 'execution_mode=background' --data-urlencode 'working_directory=C:\' --data-urlencode 'timeout=300' --data-urlencode 'command@repair.ps1' -o start.json
           JOB_ID="$(python - <<'PY'
@@ -95,11 +70,8 @@ jobs:
           import json,shlex
           d=json.load(open('status.json'));print('STATUS='+shlex.quote(str(d.get('status',''))));print('OUT_OFFSET='+str(int(d.get('out_offset',0))));print('ERR_OFFSET='+str(int(d.get('err_offset',0))));open('chunk-out','wb').write(str(d.get('stdout_chunk','')).encode());open('chunk-err','wb').write(str(d.get('stderr_chunk','')).encode())
           PY
-            . ./parsed.env;out=$OUT_OFFSET;err=$ERR_OFFSET;cat chunk-out >>stdout.log;cat chunk-err >>stderr.log
-            case "$STATUS" in completed|failed|cancelled|timed_out|output_limited) final="$STATUS";break;;esac;sleep 2
+            . ./parsed.env;out=$OUT_OFFSET;err=$ERR_OFFSET;cat chunk-out >>stdout.log;cat chunk-err >>stderr.log;case "$STATUS" in completed|failed|cancelled|timed_out|output_limited) final="$STATUS";break;;esac;sleep 2
           done
           cat stdout.log
           if [ -s stderr.log ]; then echo '=== STDERR ==='; cat stderr.log; fi
-          echo "FINAL=$final"
-          test "$final" = completed
-          grep -q 'MASTERPC_CONTROL_RECOVERY=PASS' stdout.log
+          echo "FINAL=$final";test "$final" = completed;grep -q 'KDT_CONTROL_RECOVERY=PASS' stdout.log
