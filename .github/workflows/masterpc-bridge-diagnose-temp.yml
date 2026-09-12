@@ -1,0 +1,86 @@
+name: MASTER-PC Bridge Diagnose Temp
+
+on:
+  push:
+    branches: ["main"]
+    paths: [".github/workflows/masterpc-bridge-diagnose-temp.yml"]
+
+permissions:
+  contents: read
+
+jobs:
+  diagnose:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - name: Diagnose MASTER-PC via FantestOS bridge
+        shell: bash
+        run: |
+          set -euo pipefail
+          BASE='https://fantest.win/runner'
+          code="$(curl -sS -o ping.json -w '%{http_code}' "$BASE/api.php?action=ping")"
+          echo "BRIDGE_PING_HTTP=$code"; test "$code" = 200
+          curl -fsSL -c cookies.txt -b cookies.txt "$BASE/" -o runner.html
+          CSRF="$(python - <<'PY'
+          import re,json
+          t=open('runner.html',encoding='utf-8',errors='replace').read()
+          m=re.search(r'window\.FANTESTOS_RUNNER_CSRF=(.*?);',t)
+          if not m: raise SystemExit('CSRF marker missing')
+          print(json.loads(m.group(1)))
+          PY
+          )"
+          cat > diag.ps1 <<'PS1'
+          $ErrorActionPreference='Continue'
+          Write-Host "HOST=$env:COMPUTERNAME"
+          $svcs=@(Get-CimInstance Win32_Service | Where-Object {$_.Name -like 'actions.runner.*'} | Sort-Object Name)
+          Write-Host "RUNNER_SERVICE_COUNT=$($svcs.Count)"
+          foreach($s in $svcs){
+            $agent=''; $path=[string]$s.PathName
+            $m=[regex]::Match($path,'^\s*"?([^\"]+RunnerService\.exe)')
+            if($m.Success){$cfg=Join-Path (Split-Path -Parent $m.Groups[1].Value) '.runner'; if(Test-Path $cfg){try{$j=Get-Content $cfg -Raw|ConvertFrom-Json;$agent=[string]$j.agentName}catch{}}}
+            Write-Host "RUNNER_SERVICE name=$($s.Name) state=$($s.State) start=$($s.StartMode) agent=$agent"
+          }
+          $workers=@(Get-CimInstance Win32_Process -Filter "Name='Runner.Worker.exe'" -ErrorAction SilentlyContinue)
+          Write-Host "RUNNER_WORKER_COUNT=$($workers.Count)"
+          foreach($u in @('http://127.0.0.1/masterpc/','http://127.0.0.1:8784/api/v1/health','http://127.0.0.1:8766/api/status','http://127.0.0.1:4096/')){
+            try{$r=Invoke-WebRequest $u -UseBasicParsing -TimeoutSec 6;Write-Host "LOCAL_HTTP url=$u status=$($r.StatusCode)"}catch{Write-Host "LOCAL_HTTP url=$u status=ERROR"}
+          }
+          foreach($n in @('Fantest Master PC Control Center','Fantest Termux Edge Worker - master_pc','Fantest Termux Edge Watchdog - master_pc','Fantest OpenCode Watchdog','CCC Cloudflare Tunnel')){
+            $t=Get-ScheduledTask -TaskName $n -ErrorAction SilentlyContinue
+            if($t){Write-Host "TASK name=$n state=$($t.State)"}else{Write-Host "TASK name=$n state=MISSING"}
+          }
+          if(Test-Path 'C:\xampp\private\masterpc-control\snapshot.json'){
+            try{$x=Get-Content 'C:\xampp\private\masterpc-control\snapshot.json' -Raw|ConvertFrom-Json; Write-Host "KDT_SNAPSHOT generated=$($x.generated_at) online=$($x.runner.online) busy=$($x.runner.busy) running=$($x.counts.running) queued=$($x.counts.queued)"}catch{Write-Host 'KDT_SNAPSHOT=ERROR'}
+          } else {Write-Host 'KDT_SNAPSHOT=MISSING'}
+          Write-Host 'MASTERPC_BRIDGE_DIAGNOSTIC=PASS'
+          PS1
+          curl -fsS -b cookies.txt -c cookies.txt -X POST "$BASE/api.php" \
+            --data-urlencode 'action=start' --data-urlencode "csrf=$CSRF" \
+            --data-urlencode 'runtime=powershell' --data-urlencode 'execution_mode=background' \
+            --data-urlencode 'working_directory=C:\' --data-urlencode 'timeout=240' \
+            --data-urlencode 'command@diag.ps1' -o start.json
+          JOB_ID="$(python - <<'PY'
+          import json
+          d=json.load(open('start.json'))
+          if not d.get('ok') or not d.get('job_id'): raise SystemExit('queue failed')
+          print(d['job_id'])
+          PY
+          )"
+          out=0; err=0; :>stdout.log; :>stderr.log; final=''
+          for i in $(seq 1 90); do
+            curl -fsS -b cookies.txt -c cookies.txt "$BASE/api.php?action=status&csrf=$CSRF&job_id=$JOB_ID&out_offset=$out&err_offset=$err" -o status.json
+            python - <<'PY' > parsed.env
+          import json,shlex
+          d=json.load(open('status.json'))
+          print('STATUS='+shlex.quote(str(d.get('status',''))));print('OUT_OFFSET='+str(int(d.get('out_offset',0))));print('ERR_OFFSET='+str(int(d.get('err_offset',0))))
+          open('chunk-out','wb').write(str(d.get('stdout_chunk','')).encode());open('chunk-err','wb').write(str(d.get('stderr_chunk','')).encode())
+          PY
+            . ./parsed.env; out=$OUT_OFFSET; err=$ERR_OFFSET; cat chunk-out >>stdout.log; cat chunk-err >>stderr.log
+            case "$STATUS" in completed|failed|cancelled|timed_out|output_limited) final="$STATUS"; break;; esac
+            sleep 2
+          done
+          cat stdout.log
+          if [ -s stderr.log ]; then echo '=== STDERR ==='; cat stderr.log; fi
+          echo "FINAL=$final"
+          test "$final" = completed
+          grep -q 'MASTERPC_BRIDGE_DIAGNOSTIC=PASS' stdout.log
