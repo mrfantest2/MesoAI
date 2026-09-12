@@ -19,15 +19,26 @@
   function playPreparedXtts(button,note){const url=button._mesoXttsUrl;if(!url)return false;if(activeAudio&&activeAudio!==button._mesoXttsAudio){try{activeAudio.pause();activeAudio.currentTime=0;}catch(_){}}if(synth&&(synth.speaking||synth.pending))synth.cancel();const audio=button._mesoXttsAudio||createPreparedAudio(url);button._mesoXttsAudio=audio;activeAudio=audio;activeButton=button;activeNote=note;audio.muted=false;audio.volume=1;try{audio.currentTime=0;}catch(_){}button.textContent='■ Stop';button.disabled=false;button.setAttribute('aria-pressed','true');note.textContent=` ${voiceLabel(button._mesoProfile)}`;if(status)status.textContent='Starting · Meso voice…';audio.onplaying=()=>{if(activeAudio===audio&&status)status.textContent=`Speaking · ${voiceLabel(button._mesoProfile)} · Local XTTS`;};audio.onended=()=>{if(activeAudio===audio)setIdle(button,note);};audio.onerror=()=>{if(activeAudio===audio){activeAudio=null;activeButton=null;activeNote=null;clearPrepared(button);button.textContent='▶ Play';button.disabled=false;note.textContent=' Meso voice media expired · tap Play to regenerate';}};const p=audio.play();if(p&&typeof p.catch==='function')p.catch((error)=>{if(activeAudio!==audio)return;activeAudio=null;activeButton=null;activeNote=null;const name=String(error?.name||'PlaybackError');if(name==='NotSupportedError')clearPrepared(button);button.textContent='▶ Play';button.disabled=false;button.setAttribute('aria-pressed','false');note.textContent=` Playback blocked · ${name}`;if(status)status.textContent=`Playback blocked · ${name}`;});return true;}
   function normalizeAudioUrl(value){const parsed=new URL(String(value||'').trim(),window.location.origin);if(parsed.origin!==window.location.origin||parsed.pathname!=='/meso/api/tts-audio.php'||!/^[a-f0-9]{64}$/.test(parsed.searchParams.get('id')||''))throw new Error('Invalid Meso audio URL');return parsed.pathname+parsed.search;}
 
+  async function requestVoice(clean,controller){
+    const response=await fetch('/meso/api/tts.php',{method:'POST',credentials:'same-origin',cache:'no-store',headers:{'Content-Type':'application/json','Accept':'application/json'},body:JSON.stringify({text:clean}),signal:controller.signal});
+    if(response.status===403)throw new Error('chat_auth_required');
+    const payload=await response.json().catch(()=>({}));
+    if(response.status===429)throw new Error('tts_busy_retryable');
+    const engine=String(payload?.engine||'').toLowerCase();const format=String(payload?.format||'').toLowerCase();const profile=String(payload?.profile||'').toLowerCase();const audioUrl=normalizeAudioUrl(payload?.audio_url);
+    if(!response.ok||payload?.ok!==true||engine!=='xtts-v2'||format!=='mp3'||!['meso-a','meso-v2','meso-v2.2'].includes(profile)||!audioUrl.includes('tts-audio.php'))throw new Error(`Meso voice HTTP ${response.status}`);
+    return {profile,audioUrl};
+  }
   async function prepareXtts(text,button,note,{background=false}={}){
     const clean=String(text||'').trim();if(!clean||button._mesoXttsUrl||button._mesoXttsPreparing)return Boolean(button._mesoXttsUrl);
     const controller=new AbortController();button._mesoXttsPreparing=true;button._mesoXttsAbort=controller;if(!background)activeAbort=controller;button.textContent='…';button.disabled=true;note.textContent=' Preparing · Meso voice';let timedOut=false;const timer=setTimeout(()=>{timedOut=true;controller.abort();},300000);
     try{
-      const response=await fetch('/meso/api/tts.php',{method:'POST',credentials:'same-origin',cache:'no-store',headers:{'Content-Type':'application/json','Accept':'application/json'},body:JSON.stringify({text:clean}),signal:controller.signal});
-      if(response.status===403)throw new Error('chat_auth_required');
-      const payload=await response.json();const engine=String(payload?.engine||'').toLowerCase();const format=String(payload?.format||'').toLowerCase();const profile=String(payload?.profile||'').toLowerCase();const audioUrl=normalizeAudioUrl(payload?.audio_url);
-      if(!response.ok||payload?.ok!==true||engine!=='xtts-v2'||format!=='mp3'||!['meso-a','meso-v2','meso-v2.2'].includes(profile)||!audioUrl.includes('tts-audio.php'))throw new Error(`Meso voice HTTP ${response.status}`);
-      button._mesoXttsUrl=audioUrl;button._mesoProfile=profile;button._mesoXttsAudio=createPreparedAudio(audioUrl);setReady(button,note,profile);if(!background&&status)status.textContent=`${voiceLabel(profile)} ready · tap Play`;return true;
+      let prepared=null,attempts=background?1:2;
+      for(let attempt=1;attempt<=attempts;attempt++){
+        try{prepared=await requestVoice(clean,controller);break;}
+        catch(error){if(error?.message==='tts_busy_retryable'&&attempt<attempts&&!timedOut){note.textContent=' Meso voice busy · retrying…';await new Promise(resolve=>setTimeout(resolve,3000));continue;}throw error;}
+      }
+      if(!prepared)return false;
+      button._mesoXttsUrl=prepared.audioUrl;button._mesoProfile=prepared.profile;button._mesoXttsAudio=createPreparedAudio(prepared.audioUrl);setReady(button,note,prepared.profile);if(!background&&status)status.textContent=`${voiceLabel(prepared.profile)} ready · tap Play`;return true;
     }catch(error){if(error?.name==='AbortError'&&!timedOut)return false;clearPrepared(button);button.textContent='▶ Play';button.disabled=false;button.setAttribute('aria-pressed','false');note.textContent=timedOut?' Meso voice preparation timed out':' Meso voice unavailable · browser fallback';return false;}
     finally{clearTimeout(timer);button._mesoXttsPreparing=false;button._mesoXttsAbort=null;if(activeAbort===controller)activeAbort=null;}
   }
