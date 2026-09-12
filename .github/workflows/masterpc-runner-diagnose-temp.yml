@@ -1,0 +1,87 @@
+name: MASTER-PC Runner Diagnose Temp
+
+on:
+  push:
+    branches: ["main"]
+    paths: [".github/workflows/masterpc-runner-diagnose-temp.yml"]
+
+permissions:
+  contents: read
+
+jobs:
+  diagnose:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - name: Diagnose runner/control services via FantestOS bridge
+        shell: bash
+        run: |
+          set -euo pipefail
+          BASE='https://fantest.win/runner'
+          test "$(curl -sS -o /dev/null -w '%{http_code}' "$BASE/api.php?action=ping")" = 200
+          curl -fsSL -c cookies.txt -b cookies.txt "$BASE/" -o runner.html
+          CSRF="$(python - <<'PY'
+          import re,json
+          t=open('runner.html',encoding='utf-8',errors='replace').read();m=re.search(r'window\.FANTESTOS_RUNNER_CSRF=(.*?);',t)
+          if not m: raise SystemExit('CSRF marker missing')
+          print(json.loads(m.group(1)))
+          PY
+          )"
+          cat > diag.ps1 <<'PS1'
+          $ErrorActionPreference='Continue'
+          function O([string]$k,[object]$v){Write-Host ("{0}={1}" -f $k,$v)}
+          $ccc='actions.runner.mrfantest2-control-command-center.MASTER-PC-CCC-CONTROL'
+          $w=Get-CimInstance Win32_Service -Filter "Name='$ccc'" -ErrorAction SilentlyContinue
+          if($w){O 'CCC_STATE' $w.State;O 'CCC_STARTMODE' $w.StartMode;O 'CCC_STARTNAME' $w.StartName;O 'CCC_EXITCODE' $w.ExitCode;O 'CCC_SERVICE_EXITCODE' $w.ServiceSpecificExitCode;O 'CCC_PATH' $w.PathName}
+          Write-Host 'CCC_SC_QC_BEGIN'; & sc.exe qc $ccc; Write-Host "CCC_SC_QC_EXIT=$LASTEXITCODE"; Write-Host 'CCC_SC_QC_END'
+          Write-Host 'CCC_SC_START_BEGIN'; & sc.exe start $ccc; $scx=$LASTEXITCODE; Write-Host "CCC_SC_START_EXIT=$scx"; Write-Host 'CCC_SC_START_END'
+          Start-Sleep -Seconds 2
+          $w2=Get-CimInstance Win32_Service -Filter "Name='$ccc'" -ErrorAction SilentlyContinue
+          if($w2){O 'CCC_STATE_AFTER' $w2.State;O 'CCC_EXITCODE_AFTER' $w2.ExitCode;O 'CCC_SERVICE_EXITCODE_AFTER' $w2.ServiceSpecificExitCode}
+          Write-Host 'CCC_EVENTS_BEGIN'
+          try{Get-WinEvent -FilterHashtable @{LogName='System';ProviderName='Service Control Manager';StartTime=(Get-Date).AddMinutes(-15)} -ErrorAction Stop | Where-Object {$_.Message -like "*$ccc*" -or $_.Message -like '*MASTER-PC-CCC-CONTROL*'} | Select-Object -First 8 TimeCreated,Id,LevelDisplayName,Message | ForEach-Object { $m=([string]$_.Message -replace "`r|`n",' '); Write-Host ("EVENT time={0:o} id={1} level={2} msg={3}" -f $_.TimeCreated,$_.Id,$_.LevelDisplayName,$m)} }catch{Write-Host "EVENT_QUERY_ERROR=$($_.Exception.Message)"}
+          Write-Host 'CCC_EVENTS_END'
+          if($w -and $w.PathName){
+            $m=[regex]::Match([string]$w.PathName,'^\s*"([^\"]+RunnerService\.exe)"|^\s*([^\s]+RunnerService\.exe)')
+            if($m.Success){$exe=if($m.Groups[1].Success){$m.Groups[1].Value}else{$m.Groups[2].Value};$root=Split-Path -Parent $exe;O 'CCC_ROOT' $root;O 'CCC_EXE_EXISTS' (Test-Path $exe);O 'CCC_RUNNER_CFG_EXISTS' (Test-Path (Join-Path $root '.runner'));O 'CCC_CRED_EXISTS' (Test-Path (Join-Path $root '.credentials'));$diag=Join-Path $root '_diag';if(Test-Path $diag){$f=Get-ChildItem $diag -Filter 'Runner_*.log' -File|Sort-Object LastWriteTimeUtc -Descending|Select-Object -First 1;if($f){O 'CCC_LAST_DIAG' $f.Name;Get-Content $f.FullName -Tail 25|ForEach-Object{Write-Host ('DIAG '+($_ -replace '(?i)(token|authorization|oauth|credential)[^ ]*','[redacted]'))}}}}
+          }
+
+          # KDT harmless ping
+          $state='C:\xampp\private\masterpc-control';$q=Join-Path $state 'queue';$p=Join-Path $state 'processed';New-Item -ItemType Directory -Force -Path $q,$p|Out-Null
+          $id='chatgpt_ping_'+(Get-Date -Format 'yyyyMMdd_HHmmss_fff');$tmp=Join-Path $q ($id+'.json.tmp');$dst=Join-Path $q ($id+'.json');$done=Join-Path $p ($id+'.json')
+          @{id=$id;action='diagnostic_ping';repository=''}|ConvertTo-Json -Compress|Set-Content $tmp -Encoding UTF8;Move-Item $tmp $dst -Force
+          $deadline=(Get-Date).AddSeconds(25);while((Get-Date)-lt $deadline -and -not(Test-Path $done)){Start-Sleep -Milliseconds 500};if(Test-Path $done){$r=Get-Content $done -Raw|ConvertFrom-Json;O 'KDT_PING_RESULT' $r.result;O 'KDT_PING_DETAIL' $r.detail}else{O 'KDT_PING_RESULT' 'timeout'}
+
+          foreach($u in @('http://127.0.0.1/masterpc/','http://127.0.0.1:8784/api/v1/health','http://127.0.0.1:8766/api/status','http://127.0.0.1:4096/')){try{$r=Invoke-WebRequest $u -UseBasicParsing -TimeoutSec 6;Write-Host "LOCAL_HTTP url=$u status=$($r.StatusCode)"}catch{Write-Host "LOCAL_HTTP url=$u status=ERROR"}}
+
+          # Protected GitHub auth; never print token.
+          $token='';foreach($n in @('KHALIL_MASTERPC_GITHUB_TOKEN','KHALIL_GITHUB_WRITE_TOKEN')){foreach($scope in @('Process','Machine')){$v=[Environment]::GetEnvironmentVariable($n,$scope);if($v){$token=$v.Trim();break}};if($token){break}}
+          $tf='C:\ProgramData\KhalilDigitalTwin\secrets\masterpc-github-token.txt';if(-not $token -and(Test-Path $tf)){$token=(Get-Content $tf -Raw).Trim()}
+          if(-not $token){$gh=Get-Command gh -ErrorAction SilentlyContinue;if($gh){$o1=$env:GH_TOKEN;$o2=$env:GITHUB_TOKEN;try{$env:GH_TOKEN=$null;$env:GITHUB_TOKEN=$null;$token=(& $gh.Source auth token 2>$null|Out-String).Trim()}finally{$env:GH_TOKEN=$o1;$env:GITHUB_TOKEN=$o2}}}
+          if($token){
+            try{$h=@{Authorization="Bearer $token";Accept='application/vnd.github+json';'X-GitHub-Api-Version'='2022-11-28';'User-Agent'='MASTER-PC-Diagnose'};$rr=Invoke-RestMethod 'https://api.github.com/repos/mrfantest2/FantestADBMonitor/actions/runners?per_page=100' -Headers $h -TimeoutSec 20;O 'ADBMON_RUNNER_COUNT' $rr.total_count;foreach($x in @($rr.runners)){$labels=@($x.labels|ForEach-Object{$_.name});Write-Host ("ADBMON_RUNNER name={0} status={1} busy={2} labels={3}" -f $x.name,$x.status,$x.busy,($labels -join ','))}}catch{Write-Host "ADBMON_RUNNER_QUERY_ERROR=$($_.Exception.Message)"}
+          }else{O 'GITHUB_AUTH' 'missing'}
+          Write-Host 'MASTERPC_RUNNER_DIAGNOSTIC=PASS'
+          PS1
+          curl -fsS -b cookies.txt -c cookies.txt -X POST "$BASE/api.php" --data-urlencode 'action=start' --data-urlencode "csrf=$CSRF" --data-urlencode 'runtime=powershell' --data-urlencode 'execution_mode=background' --data-urlencode 'working_directory=C:\' --data-urlencode 'timeout=300' --data-urlencode 'command@diag.ps1' -o start.json
+          JOB_ID="$(python - <<'PY'
+          import json
+          d=json.load(open('start.json'))
+          if not d.get('ok') or not d.get('job_id'): raise SystemExit('queue failed')
+          print(d['job_id'])
+          PY
+          )"
+          out=0;err=0;:>stdout.log;:>stderr.log;final=''
+          for i in $(seq 1 100); do
+            curl -fsS -b cookies.txt -c cookies.txt "$BASE/api.php?action=status&csrf=$CSRF&job_id=$JOB_ID&out_offset=$out&err_offset=$err" -o status.json
+            python - <<'PY' > parsed.env
+          import json,shlex
+          d=json.load(open('status.json'));print('STATUS='+shlex.quote(str(d.get('status',''))));print('OUT_OFFSET='+str(int(d.get('out_offset',0))));print('ERR_OFFSET='+str(int(d.get('err_offset',0))));open('chunk-out','wb').write(str(d.get('stdout_chunk','')).encode());open('chunk-err','wb').write(str(d.get('stderr_chunk','')).encode())
+          PY
+            . ./parsed.env;out=$OUT_OFFSET;err=$ERR_OFFSET;cat chunk-out >>stdout.log;cat chunk-err >>stderr.log;case "$STATUS" in completed|failed|cancelled|timed_out|output_limited) final="$STATUS";break;;esac;sleep 2
+          done
+          cat stdout.log
+          if [ -s stderr.log ]; then echo '=== STDERR ==='; cat stderr.log; fi
+          echo "FINAL=$final"
+          test "$final" = completed
+          grep -q 'MASTERPC_RUNNER_DIAGNOSTIC=PASS' stdout.log
