@@ -1,4 +1,4 @@
-name: MASTER-PC KDT Optional IDs GREEN
+name: MASTER-PC KDT Optional IDs GREEN v2
 
 on:
   push:
@@ -13,7 +13,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
-      - name: Patch StrictMode-safe optional IDs and verify live queue
+      - name: Patch only unsafe optional-ID expressions and verify queue
         shell: bash
         run: |
           set -euo pipefail
@@ -32,24 +32,21 @@ jobs:
           $ErrorActionPreference='Stop'
           function O([string]$k,[object]$v){Write-Host ("{0}={1}" -f $k,$v)}
           $path='C:\xampp\private\masterpc-control\agent\masterpc-job-agent.ps1'
-          $lines=[Collections.Generic.List[string]]::new();foreach($line in (Get-Content -LiteralPath $path)){[void]$lines.Add([string]$line)}
-          $hits=@()
-          for($i=0;$i -lt $lines.Count;$i++){if($lines[$i] -like '*$record = [ordered]@{*' -and $lines[$i] -like '*run_id=if($cmd){$cmd.run_id}*' -and $lines[$i] -like '*job_id=if($cmd){$cmd.job_id}*'){$hits+=$i}}
-          O 'UNSAFE_RECORD_HITS' $hits.Count
-          if($hits.Count -ne 1){throw 'Expected exactly one unsafe Process-Commands record line.'}
-          $idx=[int]$hits[0];$stamp=Get-Date -Format 'yyyyMMdd_HHmmss';Copy-Item $path ($path+'.pre-optional-ids-'+$stamp+'.bak') -Force
-          $lines.RemoveAt($idx)
-          $replacement=@(
-            "    `$runId = if (`$cmd -and `$cmd.PSObject.Properties['run_id']) { `$cmd.run_id } else { `$null }",
-            "    `$jobId = if (`$cmd -and `$cmd.PSObject.Properties['job_id']) { `$cmd.job_id } else { `$null }",
-            "    `$record = [ordered]@{ id=`$id; processed_at=IsoNow; action=if(`$cmd){[string]`$cmd.action}else{''}; repository=if(`$cmd){[string]`$cmd.repository}else{''}; run_id=`$runId; job_id=`$jobId; result=`$result; detail=`$detail }"
-          )
-          for($j=$replacement.Count-1;$j -ge 0;$j--){$lines.Insert($idx,$replacement[$j])}
-          [IO.File]::WriteAllLines($path,$lines,(New-Object Text.UTF8Encoding($false)))
+          $text=Get-Content -LiteralPath $path -Raw
+          $oldRun='run_id=if($cmd){$cmd.run_id}else{$null}'
+          $oldJob='job_id=if($cmd){$cmd.job_id}else{$null}'
+          $newRun='run_id=if($cmd -and $cmd.PSObject.Properties[''run_id'']){$cmd.run_id}else{$null}'
+          $newJob='job_id=if($cmd -and $cmd.PSObject.Properties[''job_id'']){$cmd.job_id}else{$null}'
+          $runHits=[regex]::Matches($text,[regex]::Escape($oldRun)).Count;$jobHits=[regex]::Matches($text,[regex]::Escape($oldJob)).Count
+          O 'UNSAFE_RUN_ID_HITS' $runHits;O 'UNSAFE_JOB_ID_HITS' $jobHits
+          if($runHits -ne 1 -or $jobHits -ne 1){throw 'Expected exactly one unsafe run_id and job_id expression.'}
+          $stamp=Get-Date -Format 'yyyyMMdd_HHmmss';Copy-Item $path ($path+'.pre-optional-ids-'+$stamp+'.bak') -Force
+          $text=$text.Replace($oldRun,$newRun).Replace($oldJob,$newJob)
+          [IO.File]::WriteAllText($path,$text,(New-Object Text.UTF8Encoding($false)))
           $tokens=$null;$errors=$null;[System.Management.Automation.Language.Parser]::ParseFile($path,[ref]$tokens,[ref]$errors)|Out-Null;if(@($errors).Count -gt 0){throw ('Parse errors: '+(@($errors|ForEach-Object{$_.Message}) -join ' | '))}
-          $text=Get-Content $path -Raw
-          if($text -notmatch "PSObject\.Properties\['run_id'\]" -or $text -notmatch "PSObject\.Properties\['job_id'\]"){throw 'Optional-ID structural regression test failed.'}
-          $tail=$text.Substring($text.IndexOf("Write-Audit @{ type='agent_start'",[StringComparison]::Ordinal));$pp=$tail.IndexOf('Process-Commands $cfg $auth.token $controlSnapshot');$cp=$tail.IndexOf('Collect-Snapshot $cfg $auth.token $auth.source');if($pp -lt 0 -or $cp -lt 0 -or $pp -gt $cp){throw 'Control-priority regression reappeared.'}
+          $check=Get-Content $path -Raw
+          if($check -notmatch "PSObject\.Properties\['run_id'\]" -or $check -notmatch "PSObject\.Properties\['job_id'\]"){throw 'Optional-ID structural test failed.'}
+          $tail=$check.Substring($check.IndexOf("Write-Audit @{ type='agent_start'",[StringComparison]::Ordinal));$pp=$tail.IndexOf('Process-Commands $cfg $auth.token $controlSnapshot');$cp=$tail.IndexOf('Collect-Snapshot $cfg $auth.token $auth.source');if($pp -lt 0 -or $cp -lt 0 -or $pp -gt $cp){throw 'Control-priority regression reappeared.'}
           O 'STRUCTURAL_TESTS' 'PASS'
           $task='KDT MasterPC Job Control';Stop-ScheduledTask -TaskName $task -ErrorAction SilentlyContinue;Start-Sleep -Seconds 2;Start-ScheduledTask -TaskName $task -ErrorAction Stop;Start-Sleep -Seconds 3;O 'KDT_TASK' (Get-ScheduledTask -TaskName $task).State
           $q='C:\xampp\private\masterpc-control\queue';$p='C:\xampp\private\masterpc-control\processed'
