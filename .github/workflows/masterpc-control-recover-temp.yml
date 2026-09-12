@@ -1,4 +1,4 @@
-name: MASTER-PC KDT Worker Deep Diagnose
+name: MASTER-PC KDT Optional IDs RED
 
 on:
   push:
@@ -9,11 +9,11 @@ permissions:
   contents: read
 
 jobs:
-  diagnose:
+  red:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 8
     steps:
-      - name: Diagnose live KDT job-control process
+      - name: Prove optional ID handling is not StrictMode-safe
         shell: bash
         run: |
           set -euo pipefail
@@ -27,32 +27,14 @@ jobs:
           print(json.loads(m.group(1)))
           PY
           )"
-          cat > diag.ps1 <<'PS1'
-          $ErrorActionPreference='Continue'
-          function O([string]$k,[object]$v){Write-Host ("{0}={1}" -f $k,$v)}
-          $task='KDT MasterPC Job Control';$ti=Get-ScheduledTaskInfo -TaskName $task -ErrorAction SilentlyContinue;$ts=Get-ScheduledTask -TaskName $task -ErrorAction SilentlyContinue
-          if($ts){O 'TASK_STATE' $ts.State};if($ti){O 'TASK_LAST_RUN' $ti.LastRunTime.ToString('o');O 'TASK_LAST_RESULT' $ti.LastTaskResult;O 'TASK_NEXT_RUN' $ti.NextRunTime.ToString('o')}
-          $procs=@(Get-CimInstance Win32_Process -ErrorAction SilentlyContinue|Where-Object{([string]$_.CommandLine)-match '(?i)masterpc-job-agent\.ps1'})
-          O 'AGENT_PROCESS_COUNT' $procs.Count
-          foreach($p in $procs){$gp=Get-Process -Id $p.ProcessId -ErrorAction SilentlyContinue;Write-Host ("AGENT_PROCESS pid={0} parent={1} start={2:o} cpu={3}" -f $p.ProcessId,$p.ParentProcessId,$gp.StartTime,$gp.CPU)}
-          $agent='C:\xampp\private\masterpc-control\agent\masterpc-job-agent.ps1';$text=Get-Content $agent -Raw;$tail=$text.Substring($text.IndexOf("Write-Audit @{ type='agent_start'",[StringComparison]::Ordinal));O 'PATCH_PRESENT' ($tail.Contains('Process-Commands $cfg $auth.token $controlSnapshot'));O 'PROCESS_BEFORE_COLLECT' ($tail.IndexOf('Process-Commands $cfg $auth.token $controlSnapshot') -lt $tail.IndexOf('Collect-Snapshot $cfg $auth.token $auth.source'))
-          O 'AUTH_ENV_MACHINE_PRIMARY' (-not [string]::IsNullOrWhiteSpace([Environment]::GetEnvironmentVariable('KHALIL_MASTERPC_GITHUB_TOKEN','Machine')))
-          O 'AUTH_ENV_MACHINE_WRITE' (-not [string]::IsNullOrWhiteSpace([Environment]::GetEnvironmentVariable('KHALIL_GITHUB_WRITE_TOKEN','Machine')))
-          O 'AUTH_PROTECTED_FILE' (Test-Path 'C:\ProgramData\KhalilDigitalTwin\secrets\masterpc-github-token.txt')
-          $q='C:\xampp\private\masterpc-control\queue';$p='C:\xampp\private\masterpc-control\processed';O 'QUEUE_COUNT' (@(Get-ChildItem $q -Filter '*.json' -File -ErrorAction SilentlyContinue).Count);O 'PROCESSED_COUNT' (@(Get-ChildItem $p -Filter '*.json' -File -ErrorAction SilentlyContinue).Count)
-          $audit='C:\xampp\private\masterpc-control\audit.jsonl';if(Test-Path $audit){Write-Host 'AUDIT_TAIL_BEGIN';Get-Content $audit -Tail 12|ForEach-Object{try{$j=$_|ConvertFrom-Json;Write-Host ("AUDIT at={0} type={1} action={2} result={3} error={4}" -f $j.at,$j.type,$j.action,$j.result,(([string]$j.error)-replace '(?i)(token|authorization|credential)[^ ]*','[redacted]'))}catch{}};Write-Host 'AUDIT_TAIL_END'}
-          # A fresh ping plus a one-shot agent process isolates task-host issues from agent logic.
-          $id='oneshot_ping_'+(Get-Date -Format 'yyyyMMdd_HHmmss_fff');$tmp=Join-Path $q ($id+'.json.tmp');$dst=Join-Path $q ($id+'.json');$done=Join-Path $p ($id+'.json');$json=(@{id=$id;action='diagnostic_ping';repository=''}|ConvertTo-Json -Compress);[IO.File]::WriteAllText($tmp,$json,(New-Object Text.UTF8Encoding($false)));Move-Item $tmp $dst -Force
-          $cfg='C:\xampp\private\masterpc-control\agent\repos.json';$state='C:\xampp\private\masterpc-control'
-          $one=Start-Process powershell.exe -ArgumentList @('-NoLogo','-NoProfile','-ExecutionPolicy','Bypass','-File',$agent,'-Once','-ConfigPath',$cfg,'-StateRoot',$state,'-PollSeconds','5') -WindowStyle Hidden -PassThru
-          O 'ONESHOT_PID' $one.Id
-          $deadline=(Get-Date).AddSeconds(15);while((Get-Date)-lt $deadline -and -not(Test-Path $done)){Start-Sleep -Milliseconds 250}
-          O 'ONESHOT_PING_PROCESSED' (Test-Path $done)
-          if(Test-Path $done){$r=Get-Content $done -Raw|ConvertFrom-Json;O 'ONESHOT_PING_RESULT' $r.result;O 'ONESHOT_PING_DETAIL' $r.detail}
-          if(-not $one.HasExited){Stop-Process -Id $one.Id -Force -ErrorAction SilentlyContinue;O 'ONESHOT_TERMINATED_AFTER_DIAG' $true}else{O 'ONESHOT_EXIT' $one.ExitCode}
-          Write-Host 'KDT_DEEP_DIAG=PASS'
+          cat > red.ps1 <<'PS1'
+          $ErrorActionPreference='Stop'
+          $text=Get-Content 'C:\xampp\private\masterpc-control\agent\masterpc-job-agent.ps1' -Raw
+          if($text -notmatch "PSObject\.Properties\['run_id'\]"){throw 'RED_EXPECTED: optional run_id access is not guarded.'}
+          if($text -notmatch "PSObject\.Properties\['job_id'\]"){throw 'RED_EXPECTED: optional job_id access is not guarded.'}
+          Write-Host 'UNEXPECTED_GREEN'
           PS1
-          curl -fsS -b cookies.txt -c cookies.txt -X POST "$BASE/api.php" --data-urlencode 'action=start' --data-urlencode "csrf=$CSRF" --data-urlencode 'runtime=powershell' --data-urlencode 'execution_mode=background' --data-urlencode 'working_directory=C:\' --data-urlencode 'timeout=180' --data-urlencode 'command@diag.ps1' -o start.json
+          curl -fsS -b cookies.txt -c cookies.txt -X POST "$BASE/api.php" --data-urlencode 'action=start' --data-urlencode "csrf=$CSRF" --data-urlencode 'runtime=powershell' --data-urlencode 'execution_mode=background' --data-urlencode 'working_directory=C:\' --data-urlencode 'timeout=90' --data-urlencode 'command@red.ps1' -o start.json
           JOB_ID="$(python - <<'PY'
           import json
           d=json.load(open('start.json'))
@@ -61,7 +43,7 @@ jobs:
           PY
           )"
           out=0;err=0;:>stdout.log;:>stderr.log;final=''
-          for i in $(seq 1 100); do
+          for i in $(seq 1 60); do
             curl -fsS -b cookies.txt -c cookies.txt "$BASE/api.php?action=status&csrf=$CSRF&job_id=$JOB_ID&out_offset=$out&err_offset=$err" -o status.json
             python - <<'PY' > parsed.env
           import json,shlex
@@ -69,4 +51,4 @@ jobs:
           PY
             . ./parsed.env;out=$OUT_OFFSET;err=$ERR_OFFSET;cat chunk-out >>stdout.log;cat chunk-err >>stderr.log;case "$STATUS" in completed|failed|cancelled|timed_out|output_limited) final="$STATUS";break;;esac;sleep 1
           done
-          cat stdout.log;if [ -s stderr.log ];then echo '=== STDERR ===';cat stderr.log;fi;echo "FINAL=$final";test "$final" = completed;grep -q 'KDT_DEEP_DIAG=PASS' stdout.log
+          cat stdout.log;cat stderr.log || true;echo "FINAL=$final";grep -q 'RED_EXPECTED:' stderr.log;! grep -q 'UNEXPECTED_GREEN' stdout.log;echo 'OPTIONAL_IDS_RED=PASS'
