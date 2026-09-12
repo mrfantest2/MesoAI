@@ -32,42 +32,34 @@ jobs:
           $ErrorActionPreference='Stop'
           function O([string]$k,[object]$v){Write-Host ("{0}={1}" -f $k,$v)}
           $path='C:\xampp\private\masterpc-control\agent\masterpc-job-agent.ps1'
-          $text=Get-Content -LiteralPath $path -Raw
-          $old=@'
-          do {
-            try {
-              $auth = Resolve-GitHubToken
-              $snapshot = if ($auth.token) { Collect-Snapshot $cfg $auth.token $auth.source } else {
-                $services=@(Get-RunnerServices); [ordered]@{schema_version=1;generated_at=IsoNow;hostname=$env:COMPUTERNAME;auth=@{state='missing';source=$auth.source};runner=@{online=@($services|Where-Object{$_.state -eq 'Running'}).Count -gt 0;busy=$false;services=$services};counts=@{running=0;queued=0;attention=0;failed=0;total=0};jobs=@();errors=@('Persistent GitHub authentication is not configured for the MASTER-PC job-control agent.')}
-              }
-              Write-JsonAtomic $SnapshotPath $snapshot
-              Process-Commands $cfg $auth.token $snapshot
-            } catch {
-          '@
-          $new=@'
-          do {
-            try {
-              $auth = Resolve-GitHubToken
-              $controlServices = @(Get-RunnerServices)
-              $controlBusy = @(Get-CimInstance Win32_Process -Filter "Name='Runner.Worker.exe'" -ErrorAction SilentlyContinue).Count -gt 0
-              $controlSnapshot = [ordered]@{ runner=[ordered]@{ online=@($controlServices|Where-Object{$_.state -eq 'Running'}).Count -gt 0; busy=$controlBusy; services=$controlServices } }
-              Process-Commands $cfg $auth.token $controlSnapshot
-              $snapshot = if ($auth.token) { Collect-Snapshot $cfg $auth.token $auth.source } else {
-                $services=@(Get-RunnerServices); [ordered]@{schema_version=1;generated_at=IsoNow;hostname=$env:COMPUTERNAME;auth=@{state='missing';source=$auth.source};runner=@{online=@($services|Where-Object{$_.state -eq 'Running'}).Count -gt 0;busy=$false;services=$services};counts=@{running=0;queued=0;attention=0;failed=0;total=0};jobs=@();errors=@('Persistent GitHub authentication is not configured for the MASTER-PC job-control agent.')}
-              }
-              Write-JsonAtomic $SnapshotPath $snapshot
-            } catch {
-          '@
-          if(-not $text.Contains($old)){throw 'Expected production main-loop block was not found; refusing blind edit.'}
+          $lines=[Collections.Generic.List[string]]::new()
+          foreach($line in (Get-Content -LiteralPath $path)){[void]$lines.Add([string]$line)}
+          $marker=-1
+          for($i=0;$i -lt $lines.Count;$i++){if($lines[$i] -like "*Write-Audit @{ type='agent_start'*" ){$marker=$i;break}}
+          if($marker -lt 0){throw 'Agent main-loop marker not found.'}
+          $authHits=@();$oldProcessHits=@()
+          for($i=$marker;$i -lt $lines.Count;$i++){
+            if($lines[$i].Trim() -eq '$auth = Resolve-GitHubToken'){$authHits+=$i}
+            if($lines[$i].Trim() -eq 'Process-Commands $cfg $auth.token $snapshot'){$oldProcessHits+=$i}
+          }
+          O 'AUTH_HITS' $authHits.Count;O 'OLD_PROCESS_HITS' $oldProcessHits.Count
+          if($authHits.Count -ne 1 -or $oldProcessHits.Count -ne 1){throw 'Expected exactly one auth line and one old Process-Commands line in main loop.'}
           $stamp=Get-Date -Format 'yyyyMMdd_HHmmss';Copy-Item -LiteralPath $path -Destination ($path+'.pre-control-priority-'+$stamp+'.bak') -Force
-          $patched=$text.Replace($old,$new)
-          [IO.File]::WriteAllText($path,$patched,(New-Object Text.UTF8Encoding($false)))
+          $removeIndex=[int]$oldProcessHits[0];$lines.RemoveAt($removeIndex)
+          $authIndex=[int]$authHits[0]
+          if($removeIndex -lt $authIndex){$authIndex--}
+          $insert=@(
+            '    $controlServices = @(Get-RunnerServices)',
+            '    $controlBusy = @(Get-CimInstance Win32_Process -Filter "Name=''Runner.Worker.exe''" -ErrorAction SilentlyContinue).Count -gt 0',
+            '    $controlSnapshot = [ordered]@{ runner=[ordered]@{ online=@($controlServices|Where-Object{$_.state -eq ''Running''}).Count -gt 0; busy=$controlBusy; services=$controlServices } }',
+            '    Process-Commands $cfg $auth.token $controlSnapshot'
+          )
+          for($j=$insert.Count-1;$j -ge 0;$j--){$lines.Insert($authIndex+1,$insert[$j])}
+          [IO.File]::WriteAllLines($path,$lines,(New-Object Text.UTF8Encoding($false)))
           $tokens=$null;$errors=$null;[System.Management.Automation.Language.Parser]::ParseFile($path,[ref]$tokens,[ref]$errors)|Out-Null
           if(@($errors).Count -gt 0){throw ('PowerShell parse errors: '+(@($errors|ForEach-Object{$_.Message}) -join ' | '))}
-          O 'PATCH_APPLIED' $true
-          $tail=$patched.Substring($patched.IndexOf("Write-Audit @{ type='agent_start'",[StringComparison]::Ordinal))
-          $processPos=$tail.IndexOf('Process-Commands $cfg $auth.token $controlSnapshot',[StringComparison]::Ordinal)
-          $collectPos=$tail.IndexOf('Collect-Snapshot $cfg $auth.token $auth.source',[StringComparison]::Ordinal)
+          $patched=Get-Content -LiteralPath $path -Raw;$tail=$patched.Substring($patched.IndexOf("Write-Audit @{ type='agent_start'",[StringComparison]::Ordinal))
+          $processPos=$tail.IndexOf('Process-Commands $cfg $auth.token $controlSnapshot',[StringComparison]::Ordinal);$collectPos=$tail.IndexOf('Collect-Snapshot $cfg $auth.token $auth.source',[StringComparison]::Ordinal)
           if($processPos -lt 0 -or $collectPos -lt 0 -or $processPos -gt $collectPos){throw 'Control-priority structural regression test failed after patch.'}
           if($tail -notmatch "Name='Runner\.Worker\.exe'"){throw 'Local Runner.Worker sampling missing after patch.'}
           O 'STRUCTURAL_TEST' 'PASS'
