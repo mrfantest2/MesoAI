@@ -1,4 +1,4 @@
-name: MASTER-PC KDT Post-Patch Audit
+name: MASTER-PC KDT Fresh Verification
 
 on:
   push:
@@ -9,11 +9,11 @@ permissions:
   contents: read
 
 jobs:
-  audit:
+  verify:
     runs-on: ubuntu-latest
     timeout-minutes: 8
     steps:
-      - name: Read post-patch KDT audit and safe queue metadata
+      - name: Verify live KDT queue and local control stack
         shell: bash
         run: |
           set -euo pipefail
@@ -27,23 +27,24 @@ jobs:
           print(json.loads(m.group(1)))
           PY
           )"
-          cat > diag.ps1 <<'PS1'
-          $ErrorActionPreference='Continue'
+          cat > verify.ps1 <<'PS1'
+          $ErrorActionPreference='Stop'
           function O([string]$k,[object]$v){Write-Host ("{0}={1}" -f $k,$v)}
-          $q='C:\xampp\private\masterpc-control\queue';$p='C:\xampp\private\masterpc-control\processed';$a='C:\xampp\private\masterpc-control\audit.jsonl'
-          O 'QUEUE_COUNT' (@(Get-ChildItem $q -Filter '*.json' -File -ErrorAction SilentlyContinue).Count)
-          foreach($f in @(Get-ChildItem $q -Filter '*.json' -File -ErrorAction SilentlyContinue|Sort-Object CreationTimeUtc)){
-            try{$j=Get-Content $f.FullName -Raw|ConvertFrom-Json;$keys=@($j.PSObject.Properties.Name);Write-Host ("QUEUE_META file={0} age_sec={1} keys={2} action={3} repo_present={4} run_id_present={5} job_id_present={6}" -f $f.Name,[int]((Get-Date)-$f.CreationTime).TotalSeconds,($keys -join ','),([string]$j.action),($keys -contains 'repository'),($keys -contains 'run_id'),($keys -contains 'job_id'))}catch{Write-Host ("QUEUE_META file={0} parse_error={1}" -f $f.Name,$_.Exception.Message)}
-          }
-          Write-Host 'AUDIT_TAIL_BEGIN'
-          if(Test-Path $a){Get-Content $a -Tail 20|ForEach-Object{try{$j=$_|ConvertFrom-Json;Write-Host ("AUDIT at={0} type={1} action={2} result={3} detail={4} error={5}" -f $j.at,$j.type,$j.action,$j.result,(([string]$j.detail)-replace '(?i)(token|authorization|credential|password|secret)[^ ]*','[redacted]'),(([string]$j.error)-replace '(?i)(token|authorization|credential|password|secret)[^ ]*','[redacted]'))}catch{}}}
-          Write-Host 'AUDIT_TAIL_END'
-          $task=Get-ScheduledTaskInfo -TaskName 'KDT MasterPC Job Control' -ErrorAction SilentlyContinue;if($task){O 'TASK_LAST_RESULT' $task.LastTaskResult;O 'TASK_LAST_RUN' $task.LastRunTime.ToString('o')}
-          $procs=@(Get-CimInstance Win32_Process|Where-Object{([string]$_.CommandLine)-match '(?i)masterpc-job-agent\.ps1'});O 'AGENT_PROCESS_COUNT' $procs.Count
-          foreach($x in $procs){$gp=Get-Process -Id $x.ProcessId -ErrorAction SilentlyContinue;Write-Host ("AGENT pid={0} start={1:o} cpu={2}" -f $x.ProcessId,$gp.StartTime,$gp.CPU)}
-          Write-Host 'POST_PATCH_AUDIT=PASS'
+          $q='C:\xampp\private\masterpc-control\queue';$p='C:\xampp\private\masterpc-control\processed'
+          O 'QUEUE_BEFORE' (@(Get-ChildItem $q -Filter '*.json' -File -ErrorAction SilentlyContinue).Count)
+          $id='verify_ping_'+(Get-Date -Format 'yyyyMMdd_HHmmss_fff');$tmp=Join-Path $q ($id+'.json.tmp');$dst=Join-Path $q ($id+'.json');$done=Join-Path $p ($id+'.json')
+          $json=(@{id=$id;action='diagnostic_ping';repository=''}|ConvertTo-Json -Compress);[IO.File]::WriteAllText($tmp,$json,(New-Object Text.UTF8Encoding($false)));Move-Item $tmp $dst -Force
+          $sw=[Diagnostics.Stopwatch]::StartNew();$deadline=(Get-Date).AddSeconds(30);while((Get-Date)-lt $deadline -and -not(Test-Path $done)){Start-Sleep -Milliseconds 200};$sw.Stop()
+          if(-not(Test-Path $done)){throw 'Fresh verification ping was not processed within 30 seconds.'}
+          $r=Get-Content $done -Raw|ConvertFrom-Json;O 'PING_RESULT' $r.result;O 'PING_DETAIL' $r.detail;O 'PING_LATENCY_MS' $sw.ElapsedMilliseconds
+          if($r.result -ne 'success' -or $r.detail -ne 'pong'){throw 'Fresh verification ping did not return success/pong.'}
+          O 'QUEUE_AFTER' (@(Get-ChildItem $q -Filter '*.json' -File -ErrorAction SilentlyContinue).Count)
+          foreach($u in @('http://127.0.0.1/masterpc/','http://127.0.0.1:8784/api/v1/health','http://127.0.0.1:8766/api/status','http://127.0.0.1:4096/')){$x=Invoke-WebRequest $u -UseBasicParsing -TimeoutSec 8;Write-Host "LOCAL_HTTP url=$u status=$($x.StatusCode)";if($x.StatusCode -ne 200){throw "Non-200 local endpoint: $u"}}
+          $cs=Invoke-RestMethod 'http://127.0.0.1:8766/api/status' -TimeoutSec 8;O 'CCC_AGENT_ONLINE' $cs.agent_online;O 'CCC_SCOPE' $cs.scope;O 'CCC_RUNNER_ISOLATION' $cs.runner_isolation
+          O 'KDT_TASK_STATE' (Get-ScheduledTask -TaskName 'KDT MasterPC Job Control').State
+          Write-Host 'MASTERPC_KDT_FRESH_VERIFY=PASS'
           PS1
-          curl -fsS -b cookies.txt -c cookies.txt -X POST "$BASE/api.php" --data-urlencode 'action=start' --data-urlencode "csrf=$CSRF" --data-urlencode 'runtime=powershell' --data-urlencode 'execution_mode=background' --data-urlencode 'working_directory=C:\' --data-urlencode 'timeout=120' --data-urlencode 'command@diag.ps1' -o start.json
+          curl -fsS -b cookies.txt -c cookies.txt -X POST "$BASE/api.php" --data-urlencode 'action=start' --data-urlencode "csrf=$CSRF" --data-urlencode 'runtime=powershell' --data-urlencode 'execution_mode=background' --data-urlencode 'working_directory=C:\' --data-urlencode 'timeout=120' --data-urlencode 'command@verify.ps1' -o start.json
           JOB_ID="$(python - <<'PY'
           import json
           d=json.load(open('start.json'))
@@ -60,4 +61,4 @@ jobs:
           PY
             . ./parsed.env;out=$OUT_OFFSET;err=$ERR_OFFSET;cat chunk-out >>stdout.log;cat chunk-err >>stderr.log;case "$STATUS" in completed|failed|cancelled|timed_out|output_limited) final="$STATUS";break;;esac;sleep 1
           done
-          cat stdout.log;if [ -s stderr.log ];then echo '=== STDERR ===';cat stderr.log;fi;echo "FINAL=$final";test "$final" = completed;grep -q 'POST_PATCH_AUDIT=PASS' stdout.log
+          cat stdout.log;if [ -s stderr.log ];then echo '=== STDERR ===';cat stderr.log;fi;echo "FINAL=$final";test "$final" = completed;grep -q 'MASTERPC_KDT_FRESH_VERIFY=PASS' stdout.log
