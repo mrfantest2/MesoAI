@@ -25,7 +25,32 @@ foreach(['mp3'=>'audio/mpeg','wav'=>'audio/wav'] as $ext=>$mime){
 if($file===null){http_response_code(404);exit;}
 $size=filesize($file[0]);
 if($size===false||$size<1){http_response_code(404);exit;}
+$start=0;
+$end=$size-1;
+$range=trim((string)($_SERVER['HTTP_RANGE']??''));
+if($range!==''){
+    if(preg_match('/\Abytes=(\d+)-(\d*)\z/D',$range,$m)!==1){http_response_code(416);header('Content-Range: bytes */'.$size);exit;}
+    $start=(int)$m[1];
+    if($m[2]!=='')$end=(int)$m[2];
+    if($start<0||$start>=$size||$end<$start){http_response_code(416);header('Content-Range: bytes */'.$size);exit;}
+    if($end>=$size)$end=$size-1;
+    http_response_code(206);
+    header('Content-Range: bytes '.$start.'-'.$end.'/'.$size);
+}
+$length=$end-$start+1;
 header('Content-Type: '.$file[1]);
-header('Content-Length: '.$size);
+header('Accept-Ranges: bytes');
+header('Content-Length: '.$length);
 header('Content-Disposition: inline; filename="meso-v24-'.$kind.'.'.pathinfo($file[0],PATHINFO_EXTENSION).'"');
-readfile($file[0]);
+if(strtoupper((string)($_SERVER['REQUEST_METHOD']??''))==='HEAD')exit;
+$fh=fopen($file[0],'rb');
+if(!$fh){http_response_code(404);exit;}
+fseek($fh,$start);
+$remaining=$length;
+while($remaining>0&&!feof($fh)){
+    $chunk=fread($fh,(int)min(1048576,$remaining));
+    if($chunk===false||$chunk==='')break;
+    echo $chunk;
+    $remaining-=strlen($chunk);
+}
+fclose($fh);
