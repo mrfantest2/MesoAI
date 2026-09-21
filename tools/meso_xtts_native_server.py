@@ -51,8 +51,18 @@ def _load_model():
     with _model_lock:
         if _model is None:
             from TTS.api import TTS
-            _model = TTS(MODEL_NAME, progress_bar=False).to(_device())
+            # Keep the idle model in system RAM so Ollama can own the 6 GB RTX 2060.
+            _model = TTS(MODEL_NAME, progress_bar=False).to("cpu")
     return _model
+
+
+def _offload_model(model) -> None:
+    if not torch.cuda.is_available():
+        return
+    try:
+        model.to("cpu")
+    finally:
+        torch.cuda.empty_cache()
 
 
 @app.get("/health")
@@ -80,13 +90,19 @@ def synthesize(request: SynthesisRequest) -> Response:
     os.close(fd)
     try:
         with _synthesis_lock:
-            _load_model().tts_to_file(
-                text=text,
-                speaker_wav=refs,
-                language=language,
-                file_path=output,
-                split_sentences=True,
-            )
+            model = _load_model()
+            try:
+                if torch.cuda.is_available():
+                    model.to("cuda")
+                model.tts_to_file(
+                    text=text,
+                    speaker_wav=refs,
+                    language=language,
+                    file_path=output,
+                    split_sentences=True,
+                )
+            finally:
+                _offload_model(model)
         audio = Path(output).read_bytes()
     finally:
         Path(output).unlink(missing_ok=True)

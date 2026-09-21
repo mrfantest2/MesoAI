@@ -52,6 +52,14 @@ function meso_chat_provider_config(): array {
 
 function meso_chat_lite_model_allowlist(): array { return ['qwen2.5:3b','qwen2.5:1.5b']; }
 
+function meso_chat_num_predict(string $model): int {
+    return match(strtolower(trim($model))) {
+        'qwen2.5:1.5b' => 360,
+        'qwen2.5:3b' => 600,
+        default => 900,
+    };
+}
+
 function meso_chat_requested_model(array $body,string $provider,string $default): string {
     $requested=strtolower(trim((string)($body['model']??'')));
     if($requested===''||$requested===$default) return $default;

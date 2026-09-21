@@ -2,14 +2,20 @@ package win.fantest.mesochat;
 
 import android.Manifest;
 import android.app.Activity;
+import android.app.Notification;
+import android.app.NotificationChannel;
+import android.app.NotificationManager;
+import android.app.PendingIntent;
 import android.content.Intent;
 import android.content.pm.PackageManager;
 import android.graphics.Color;
 import android.net.Uri;
+import android.os.Build;
 import android.os.Bundle;
 import android.view.Gravity;
 import android.view.View;
 import android.webkit.CookieManager;
+import android.webkit.JavascriptInterface;
 import android.webkit.PermissionRequest;
 import android.webkit.SslErrorHandler;
 import android.webkit.WebChromeClient;
@@ -30,7 +36,9 @@ import java.util.Arrays;
 public final class MainActivity extends Activity {
     private static final String CHAT_URL = "https://fantest.win/meso/chat/";
     private static final int RECORD_AUDIO_REQUEST = 4201;
+    private static final int NOTIFICATION_REQUEST = 4202;
     private static final int MAX_MAIN_FRAME_RETRIES = 4;
+    private static final String REPLY_CHANNEL_ID = "meso_replies";
 
     private WebView webView;
     private View loadingOverlay;
@@ -42,6 +50,7 @@ public final class MainActivity extends Activity {
     private boolean mainFrameFailed = false;
     private boolean clearedInitialHistory = false;
     private String lastRequestedUrl = CHAT_URL;
+    private boolean activityResumed = false;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -106,12 +115,15 @@ public final class MainActivity extends Activity {
         ));
 
         setContentView(root);
+        createReplyNotificationChannel();
+        requestNotificationPermissionIfNeeded();
         configureWebView();
         loadIntent(getIntent());
     }
 
     private void configureWebView() {
         WebView.setWebContentsDebuggingEnabled(BuildConfig.DEBUG);
+        webView.addJavascriptInterface(new NativeBridge(), "MesoNative");
 
         WebSettings settings = webView.getSettings();
         settings.setJavaScriptEnabled(true);
@@ -123,7 +135,7 @@ public final class MainActivity extends Activity {
         settings.setMixedContentMode(WebSettings.MIXED_CONTENT_NEVER_ALLOW);
         settings.setAllowFileAccess(false);
         settings.setAllowContentAccess(false);
-        settings.setUserAgentString(settings.getUserAgentString() + " MesoAIChatAndroid/1.0");
+        settings.setUserAgentString(settings.getUserAgentString() + " MesoAIChatAndroid/1.1");
 
         CookieManager cookieManager = CookieManager.getInstance();
         cookieManager.setAcceptCookie(true);
@@ -191,6 +203,71 @@ public final class MainActivity extends Activity {
                 runOnUiThread(() -> handleWebPermissionRequest(request));
             }
         });
+    }
+
+    private void createReplyNotificationChannel() {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return;
+        NotificationChannel channel = new NotificationChannel(
+                REPLY_CHANNEL_ID,
+                "MesoAI replies",
+                NotificationManager.IMPORTANCE_DEFAULT
+        );
+        channel.setDescription("Notifications when MesoAI finishes a reply");
+        NotificationManager manager = getSystemService(NotificationManager.class);
+        if (manager != null) manager.createNotificationChannel(channel);
+    }
+
+    private void requestNotificationPermissionIfNeeded() {
+        if (Build.VERSION.SDK_INT >= 33
+                && checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
+            requestPermissions(new String[]{Manifest.permission.POST_NOTIFICATIONS}, NOTIFICATION_REQUEST);
+        }
+    }
+
+    private void showReplyNotification(String text) {
+        if (Build.VERSION.SDK_INT >= 33
+                && checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
+            return;
+        }
+
+        String clean = text == null ? "" : text.trim();
+        if (clean.isEmpty()) return;
+
+        Intent openIntent = new Intent(this, MainActivity.class)
+                .setFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP | Intent.FLAG_ACTIVITY_CLEAR_TOP);
+        PendingIntent contentIntent = PendingIntent.getActivity(
+                this,
+                0,
+                openIntent,
+                PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE
+        );
+
+        Notification.Builder builder = Build.VERSION.SDK_INT >= Build.VERSION_CODES.O
+                ? new Notification.Builder(this, REPLY_CHANNEL_ID)
+                : new Notification.Builder(this);
+
+        builder.setSmallIcon(R.drawable.ic_notification)
+                .setContentTitle("MesoAI replied")
+                .setContentText(clean)
+                .setStyle(new Notification.BigTextStyle().bigText(clean))
+                .setContentIntent(contentIntent)
+                .setAutoCancel(true);
+
+        NotificationManager manager = (NotificationManager) getSystemService(NOTIFICATION_SERVICE);
+        if (manager != null) manager.notify(1001, builder.build());
+    }
+
+    private final class NativeBridge {
+        @JavascriptInterface
+        public void replyReady(String text) {
+            final String clean = text == null ? "" : text.trim();
+            if (clean.isEmpty()) return;
+            runOnUiThread(() -> {
+                if (!activityResumed || !hasWindowFocus()) {
+                    showReplyNotification(clean);
+                }
+            });
+        }
     }
 
     private void handleWebPermissionRequest(PermissionRequest request) {
@@ -277,6 +354,18 @@ public final class MainActivity extends Activity {
         loadingSpinner.setVisibility(View.GONE);
         retryHint.setVisibility(View.VISIBLE);
         showLoading("MesoAI connection interrupted.\nTap to retry.");
+    }
+
+    @Override
+    protected void onResume() {
+        super.onResume();
+        activityResumed = true;
+    }
+
+    @Override
+    protected void onPause() {
+        activityResumed = false;
+        super.onPause();
     }
 
     @Override

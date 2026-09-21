@@ -64,8 +64,8 @@ try {
                 'model'=>$model,
                 'messages'=>meso_chat_ollama_messages($prepared,$context),
                 'stream'=>false,
-                'keep_alive'=>-1,
-                'options'=>['num_predict'=>900],
+                'keep_alive'=>0,
+                'options'=>['num_predict'=>meso_chat_num_predict($model)],
             ],
             ['Content-Type: application/json','Accept: application/json'],
             300

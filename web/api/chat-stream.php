@@ -87,8 +87,8 @@ if($provider==='ollama'){
         'model'=>$model,
         'messages'=>meso_chat_ollama_messages($prepared,$context),
         'stream'=>true,
-        'keep_alive'=>-1,
-        'options'=>['num_predict'=>900],
+        'keep_alive'=>0,
+        'options'=>['num_predict'=>meso_chat_num_predict($model)],
     ];
     $ch=curl_init((string)$cfg['base_url'].'/api/chat');
     curl_setopt_array($ch,[

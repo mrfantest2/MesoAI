@@ -95,7 +95,7 @@ button,textarea,a{font:inherit}
   <div class="brand"><div class="mark">M</div>MesoAI</div>
   <div class="panel">
     <div class="label">Private state</div>
-    <div class="status"><span>Memory</span><span class="pill good">MESO v1</span></div>
+    <div class="status"><span>Memory</span><span class="pill good">ON · MESO v1</span></div>
     <div class="status"><span>Persona</span><span class="pill good">MESO v1</span></div>
     <div class="status"><span>Speech to text</span><span class="pill good">LOCAL</span></div>
     <div class="status"><span>Cloned voice</span><span class="pill good">MESO VOICE</span></div>
@@ -117,15 +117,17 @@ button,textarea,a{font:inherit}
   <header class="top">
     <button id="conversationDrawerToggle" class="conversationTop" type="button" aria-label="Open conversations">☰</button>
     <strong>MesoAI · Chat</strong>
-    <span id="status">Private · Persona meso-v1 · Memory meso-v1 · Local STT</span>
-    <button id="memoryBtn" class="memoryTop" type="button">Memory</button>
-    <button id="modelToggle" class="modelToggle" type="button" aria-pressed="false" title="Switch between Standard and Lite AI models">Standard</button>
+    <span id="status">Private · Persona meso-v1 · Memory ON · Local STT</span>
+    <button id="memoryBtn" class="memoryTop" type="button">Memory ON</button>
+    <button id="modelToggle" class="modelToggle" type="button" aria-pressed="true" title="Switch between Quick, Lite, and Standard AI models">⚡ Quick</button>
+    <button id="voiceAutoToggle" class="modelToggle" type="button" aria-pressed="false" title="Prepare voice replies and optionally play automatically">🔈 Voice</button>
     <button class="installTop" data-install-app type="button" hidden aria-hidden="true">Install app</button>
   </header>
   <div class="mobileState" id="mobileState" aria-label="Private chat status" hidden>
-    <span class="pill good" data-mobile-state="memory">Memory · MESO v1</span>
+    <span class="pill good" data-mobile-state="memory">Memory · ON</span>
     <span class="pill good" data-mobile-state="persona">Persona · MESO v1</span>
-    <span class="pill good" data-mobile-state="model">AI · Standard</span>
+    <span class="pill good" data-mobile-state="model">AI · Quick</span>
+    <span class="pill" data-mobile-state="voice">Voice · Manual</span>
   </div>
   <div class="chat">
     <section id="messages" class="messages"><div class="empty"><div class="orb">✦</div><strong>Meso Persona is ready</strong><div style="margin-top:7px">Conversation Memory v1 is loading. Historical Persona evidence remains separate from generated conversation content.</div></div></section>
@@ -155,10 +157,10 @@ button,textarea,a{font:inherit}
 </div>
 
 <div id="installSheet" class="installSheet" hidden aria-hidden="true"><section class="installCard" role="dialog" aria-modal="true" aria-labelledby="installSheetTitle"><button id="installSheetClose" class="installClose" type="button" aria-label="Close install instructions">×</button><strong id="installSheetTitle">Install MesoAI</strong><p id="installSheetText">Install MesoAI on your home screen.</p></section></div>
-<script src="/meso/chat/render.js?v=20260921c" defer></script>
-<script src="/meso/chat/chat.js?v=20260921c" defer></script>
-<script src="/meso/chat/conversations.js?v=20260921c" defer></script>
-<script src="/meso/chat/memory.js?v=20260921c" defer></script>
+<script src="/meso/chat/render.js?v=20260921d" defer></script>
+<script src="/meso/chat/chat.js?v=20260921d" defer></script>
+<script src="/meso/chat/conversations.js?v=20260921d" defer></script>
+<script src="/meso/chat/memory.js?v=20260921d" defer></script>
 <script src="/meso/pwa/install.js?v=20260910" defer></script>
 <?php endif; ?>
 </body>

@@ -10,22 +10,24 @@
     const css=document.createElement('link');css.rel='stylesheet';css.href='/meso/chat/chat-v2.css?v=20260921c';css.dataset.mesoChatV2='1';document.head.appendChild(css);
   }
 
-  const AI_VARIANT_KEY='meso.aiVariant.v1';
+  const AI_VARIANT_KEY='meso.aiVariant.v2';
+  const QUICK_MODEL='qwen2.5:1.5b';
   const LITE_MODEL='qwen2.5:3b';
   const ICON_MIC='<svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="2" width="6" height="12" rx="3"/><path d="M5 10a7 7 0 0 0 14 0M12 19v3"/></svg>';
   const ICON_STOP='<svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor" aria-hidden="true"><rect x="6" y="6" width="12" height="12" rx="2"/></svg>';
   const modelToggle=$('modelToggle');
-  function getAiVariant(){try{return localStorage.getItem(AI_VARIANT_KEY)==='lite'?'lite':'standard';}catch(_){return 'standard';}}
+  function getAiVariant(){try{const value=localStorage.getItem(AI_VARIANT_KEY);return ['quick','lite','standard'].includes(value)?value:'quick';}catch(_){return 'quick';}}
   let aiVariant=getAiVariant();
-  function requestedModel(){return aiVariant==='lite'?LITE_MODEL:'';}
+  function requestedModel(){return aiVariant==='quick'?QUICK_MODEL:aiVariant==='lite'?LITE_MODEL:'';}
+  function modelLabel(){return aiVariant==='quick'?'Quick':aiVariant==='lite'?'Lite':'Standard';}
   function refreshModelToggle(){
     if(!modelToggle)return;
-    const lite=aiVariant==='lite';
-    modelToggle.textContent=lite?'⚡ Lite':'Standard';
-    modelToggle.setAttribute('aria-pressed',lite?'true':'false');
-    modelToggle.title=lite?`Lite AI (${LITE_MODEL}) — faster replies`:'Standard AI — full quality';
+    const label=modelLabel();
+    modelToggle.textContent=aiVariant==='quick'?'⚡ Quick':label;
+    modelToggle.setAttribute('aria-pressed',aiVariant!=='standard'?'true':'false');
+    modelToggle.title=aiVariant==='quick'?`Quick AI (${QUICK_MODEL}) — lowest latency`:aiVariant==='lite'?`Lite AI (${LITE_MODEL}) — balanced`:'Standard AI — full quality';
     const strip=document.querySelector('[data-mobile-state="model"]');
-    if(strip)strip.textContent=lite?'AI · Lite':'AI · Standard';
+    if(strip)strip.textContent=`AI · ${label}`;
   }
   function fmtTime(ts){const d=ts?new Date(Number(ts)*1000):new Date();if(Number.isNaN(d.getTime()))return '';return d.toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'});}
 
@@ -35,7 +37,7 @@
 
   const validId=(value)=>/^[a-f0-9]{64}$/.test(String(value||''));
   const stateJsonHeaders={'Content-Type':'application/json','Accept':'application/json'};
-  const baseStatus=()=>`Private · Persona ${activePersona} · Historical evidence ${activeEvidenceCount} · Conversation memory MESO v1 · STT local · Voice Meso${aiVariant==='lite'?' · AI Lite':''}`;
+  const baseStatus=()=>`Private · Persona ${activePersona} · Historical evidence ${activeEvidenceCount} · Memory ON · STT local · Voice Meso · AI ${modelLabel()}`;
 
   function ensureStopButton(){
     let button=$('stopGeneration');
@@ -114,6 +116,11 @@
     view.card.classList.remove('thinking');
     view.body.replaceChildren();
   }
+  function announceReplyReady(card,text){
+    const clean=String(text||'').trim();if(!clean)return;
+    window.dispatchEvent(new CustomEvent('meso:reply-finalized',{detail:{card,text:clean}}));
+    try{if(window.MesoNative&&typeof window.MesoNative.replyReady==='function')window.MesoNative.replyReady(clean);}catch(_){}
+  }
   function finalizeStreamingCard(view,text,meta,userMessageId){
     if(!view)return addMessage('assistant',text,meta,{userMessageId});
     if(typeof view.stopThinking==='function')view.stopThinking();view.card.classList.remove('streaming','thinking');view.label.childNodes[0].textContent='Assistant';if(meta)view.label.title=meta;
@@ -121,6 +128,7 @@
     if(typeof window.mesoRenderAssistant==='function')window.mesoRenderAssistant(view.body,text);else view.body.textContent=text;
     view.card.dataset.plainText=text;
     if(typeof window.mesoAttachMessageActions==='function')window.mesoAttachMessageActions(view.card,{text,onRegenerate:validId(userMessageId)?()=>regenerateMessage(userMessageId):undefined});
+    announceReplyReady(view.card,text);
     messages.scrollTop=messages.scrollHeight;return view;
   }
 
@@ -140,7 +148,7 @@
       const label=row.querySelector('span:first-child'),pill=row.querySelector('.pill');if(!label||!pill)continue;
       const name=String(label.textContent||'').trim();
       if(name==='Persona'){pill.textContent=activePersona==='meso-v2'?'MESO v2':activePersona==='meso-v1'?'MESO v1':'OFF';pill.classList.toggle('good',activePersona!=='off');}
-      else if(name==='Conversation memory'){pill.textContent=state?.memory_enabled===false?'OFF':'MESO v1';pill.classList.toggle('good',state?.memory_enabled!==false);}
+      else if(name==='Conversation memory'){pill.textContent=state?.memory_enabled===false?'OFF':'ON · MESO v1';pill.classList.toggle('good',state?.memory_enabled!==false);}
       else if(name==='Historical evidence'){pill.textContent=activeGrounding==='evidence-retrieval'?activeEvidenceCount.toLocaleString():'OFF';pill.classList.toggle('good',activeGrounding==='evidence-retrieval');}
     }
     const empty=messages.querySelector('.empty');
@@ -148,7 +156,7 @@
     const composerNote=document.querySelector('.composer small');if(composerNote)composerNote.textContent='Private · Local STT + Meso voice';
     const strip=document.getElementById('mobileState');if(strip)strip.hidden=false;
     const mobilePersona=document.querySelector('[data-mobile-state="persona"]');if(mobilePersona)mobilePersona.textContent=`Persona · ${activePersona==='off'?'OFF':activePersona.toUpperCase()}`;
-    const mobileMemory=document.querySelector('[data-mobile-state="memory"]');if(mobileMemory){const enabled=state?.memory_enabled!==false;mobileMemory.textContent=`Memory · ${enabled?'MESO v1':'OFF'}`;mobileMemory.classList.toggle('good',enabled);}
+    const mobileMemory=document.querySelector('[data-mobile-state="memory"]');if(mobileMemory){const enabled=state?.memory_enabled!==false;mobileMemory.textContent=`Memory · ${enabled?'ON':'OFF'}`;mobileMemory.classList.toggle('good',enabled);}const memoryButton=$('memoryBtn');if(memoryButton)memoryButton.textContent=state?.memory_enabled===false?'Memory OFF':'Memory ON';
     refreshModelToggle();
     if(!send.disabled)status.textContent=baseStatus();
   }
@@ -197,7 +205,7 @@
     const payload={conversation_id:activeConversationId};if(validId(regenerateMessageId))payload.regenerate_message_id=regenerateMessageId;else payload.message=message;const liteModel=requestedModel();if(liteModel)payload.model=liteModel;
     const controller=new AbortController();generationController=controller;generationStopped=false;
     let deltaAccepted=false,fallbackEligible=true,userMessageId=validId(regenerateMessageId)?regenerateMessageId:'',streamText='',partial=createThinkingCard(),donePayload=null;
-    setGenerationUi(true,`Meso is thinking · ${aiVariant==='lite'?'Lite':'Standard'} · Persona ${activePersona}`);
+    setGenerationUi(true,`Meso is thinking · ${modelLabel()} · Memory ON · Persona ${activePersona}`);
     try{
       await streamRequest(payload,controller,async(eventName,data)=>{
         if(eventName==='meta'){
@@ -241,7 +249,7 @@
 
   window.mesoActiveConversationId=()=>activeConversationId;
   window.mesoChatBridge={activateConversation,newConversation:newChat,reloadActive:()=>validId(activeConversationId)?activateConversation(activeConversationId):Promise.reject(new Error('invalid_conversation_id'))};
-  if(modelToggle)modelToggle.addEventListener('click',()=>{if(generationController||recording||transcribing)return;aiVariant=aiVariant==='lite'?'standard':'lite';try{localStorage.setItem(AI_VARIANT_KEY,aiVariant);}catch(_){}refreshModelToggle();if(!send.disabled)status.textContent=baseStatus();});
+  if(modelToggle)modelToggle.addEventListener('click',()=>{if(generationController||recording||transcribing)return;aiVariant=aiVariant==='quick'?'lite':aiVariant==='lite'?'standard':'quick';try{localStorage.setItem(AI_VARIANT_KEY,aiVariant);}catch(_){}refreshModelToggle();if(!send.disabled)status.textContent=baseStatus();});
   refreshModelToggle();
   send.addEventListener('click',sendText);
   if(stopButton)stopButton.addEventListener('click',stopGeneration);
@@ -253,4 +261,4 @@
   status.textContent='Private · Loading Conversation memory v1…';send.disabled=true;input.disabled=true;if(mic)mic.disabled=true;bootstrapChat();
 })();
 
-const replyAudioScript=document.createElement('script');replyAudioScript.src='/meso/chat/reply-audio.js';replyAudioScript.defer=true;document.head.appendChild(replyAudioScript);
+const replyAudioScript=document.createElement('script');replyAudioScript.src='/meso/chat/reply-audio.js?v=20260921d';replyAudioScript.defer=true;document.head.appendChild(replyAudioScript);
