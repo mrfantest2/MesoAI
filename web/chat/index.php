@@ -120,7 +120,7 @@ button,textarea,a{font:inherit}
     <strong>MesoAI · Chat</strong>
     <span id="status">Private · Persona meso-v1 · Memory ON · Free Talk ON · Local STT</span>
     <button id="memoryBtn" class="memoryTop" type="button">Memory ON</button>
-    <button id="modelToggle" class="modelToggle" type="button" aria-pressed="true" title="Switch between Quick, Lite, and Standard AI models">⚡ Quick</button>
+    <button id="modelToggle" class="modelToggle" type="button" aria-pressed="true" title="Switch between Lite, Standard, and Quick AI models">Lite</button>
     <button id="freeTalkToggle" class="modelToggle" type="button" aria-pressed="true" title="Free Talk ON — natural adult conversation">🔓 Free</button>
     <button id="voiceAutoToggle" class="modelToggle" type="button" aria-pressed="false" title="Prepare voice replies and optionally play automatically">🔈 Voice</button>
     <button class="installTop" data-install-app type="button" hidden aria-hidden="true">Install app</button>
@@ -128,7 +128,7 @@ button,textarea,a{font:inherit}
   <div class="mobileState" id="mobileState" aria-label="Private chat status" hidden>
     <span class="pill good" data-mobile-state="memory">Memory · ON</span>
     <span class="pill good" data-mobile-state="persona">Persona · MESO v1</span>
-    <span class="pill good" data-mobile-state="model">AI · Quick</span>
+    <span class="pill good" data-mobile-state="model">AI · Lite</span>
     <span class="pill good" data-mobile-state="free-talk">Mode · Free</span>
     <span class="pill" data-mobile-state="voice">Voice · Manual</span>
   </div>
@@ -160,10 +160,10 @@ button,textarea,a{font:inherit}
 </div>
 
 <div id="installSheet" class="installSheet" hidden aria-hidden="true"><section class="installCard" role="dialog" aria-modal="true" aria-labelledby="installSheetTitle"><button id="installSheetClose" class="installClose" type="button" aria-label="Close install instructions">×</button><strong id="installSheetTitle">Install MesoAI</strong><p id="installSheetText">Install MesoAI on your home screen.</p></section></div>
-<script src="/meso/chat/render.js?v=20260921f" defer></script>
-<script src="/meso/chat/chat.js?v=20260921f" defer></script>
-<script src="/meso/chat/conversations.js?v=20260921f" defer></script>
-<script src="/meso/chat/memory.js?v=20260921f" defer></script>
+<script src="/meso/chat/render.js?v=20260921h" defer></script>
+<script src="/meso/chat/chat.js?v=20260921h" defer></script>
+<script src="/meso/chat/conversations.js?v=20260921h" defer></script>
+<script src="/meso/chat/memory.js?v=20260921h" defer></script>
 <script src="/meso/pwa/install.js?v=20260910" defer></script>
 <?php endif; ?>
 </body>

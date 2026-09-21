@@ -92,6 +92,8 @@ if($provider==='ollama'){
             'num_predict'=>meso_chat_num_predict($model),
             'temperature'=>($prepared['free_talk']??false)?0.85:null,
             'top_p'=>($prepared['free_talk']??false)?0.92:null,
+            'repeat_penalty'=>($prepared['free_talk']??false)?1.12:null,
+            'repeat_last_n'=>($prepared['free_talk']??false)?192:null,
         ],static fn($value)=>$value!==null),
     ];
     $ch=curl_init((string)$cfg['base_url'].'/api/chat');
