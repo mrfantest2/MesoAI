@@ -157,10 +157,10 @@ button,textarea,a{font:inherit}
 </div>
 
 <div id="installSheet" class="installSheet" hidden aria-hidden="true"><section class="installCard" role="dialog" aria-modal="true" aria-labelledby="installSheetTitle"><button id="installSheetClose" class="installClose" type="button" aria-label="Close install instructions">×</button><strong id="installSheetTitle">Install MesoAI</strong><p id="installSheetText">Install MesoAI on your home screen.</p></section></div>
-<script src="/meso/chat/render.js?v=20260921d" defer></script>
-<script src="/meso/chat/chat.js?v=20260921d" defer></script>
-<script src="/meso/chat/conversations.js?v=20260921d" defer></script>
-<script src="/meso/chat/memory.js?v=20260921d" defer></script>
+<script src="/meso/chat/render.js?v=20260921e" defer></script>
+<script src="/meso/chat/chat.js?v=20260921e" defer></script>
+<script src="/meso/chat/conversations.js?v=20260921e" defer></script>
+<script src="/meso/chat/memory.js?v=20260921e" defer></script>
 <script src="/meso/pwa/install.js?v=20260910" defer></script>
 <?php endif; ?>
 </body>

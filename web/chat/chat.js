@@ -261,4 +261,4 @@
   status.textContent='Private · Loading Conversation memory v1…';send.disabled=true;input.disabled=true;if(mic)mic.disabled=true;bootstrapChat();
 })();
 
-const replyAudioScript=document.createElement('script');replyAudioScript.src='/meso/chat/reply-audio.js?v=20260921d';replyAudioScript.defer=true;document.head.appendChild(replyAudioScript);
+const replyAudioScript=document.createElement('script');replyAudioScript.src='/meso/chat/reply-audio.js?v=20260921e';replyAudioScript.defer=true;document.head.appendChild(replyAudioScript);
