@@ -1,0 +1,25 @@
+#!/usr/bin/env sh
+set -eu
+GRADLE_VERSION=8.13
+BOOTSTRAP_ROOT="${HOME}/.gradle/khalil-bootstrap"
+DIST_DIR="${BOOTSTRAP_ROOT}/gradle-${GRADLE_VERSION}"
+ZIP_FILE="${BOOTSTRAP_ROOT}/gradle-${GRADLE_VERSION}-bin.zip"
+
+if [ ! -x "${DIST_DIR}/bin/gradle" ]; then
+  mkdir -p "${BOOTSTRAP_ROOT}"
+  echo "Khalil Digital Twin: bootstrapping Gradle ${GRADLE_VERSION}..."
+  if [ ! -f "${ZIP_FILE}" ]; then
+    if command -v curl >/dev/null 2>&1; then
+      curl -L --fail "https://services.gradle.org/distributions/gradle-${GRADLE_VERSION}-bin.zip" -o "${ZIP_FILE}"
+    elif command -v wget >/dev/null 2>&1; then
+      wget "https://services.gradle.org/distributions/gradle-${GRADLE_VERSION}-bin.zip" -O "${ZIP_FILE}"
+    else
+      echo "curl or wget is required to bootstrap Gradle." >&2
+      exit 1
+    fi
+  fi
+  command -v unzip >/dev/null 2>&1 || { echo "unzip is required to bootstrap Gradle." >&2; exit 1; }
+  unzip -oq "${ZIP_FILE}" -d "${BOOTSTRAP_ROOT}"
+fi
+
+exec "${DIST_DIR}/bin/gradle" "$@"

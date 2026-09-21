@@ -7,7 +7,7 @@
   if(!messages||!input||!send||!status)return;
 
   if(!document.querySelector('link[data-meso-chat-v2]')){
-    const css=document.createElement('link');css.rel='stylesheet';css.href='/meso/chat/chat-v2.css?v=20260910';css.dataset.mesoChatV2='1';document.head.appendChild(css);
+    const css=document.createElement('link');css.rel='stylesheet';css.href='/meso/chat/chat-v2.css?v=20260921c';css.dataset.mesoChatV2='1';document.head.appendChild(css);
   }
 
   const AI_VARIANT_KEY='meso.aiVariant.v1';
@@ -92,9 +92,31 @@
   }
 
   function createStreamingCard(){const view=addMessage('assistant','','',{actions:false,render:false});view.card.classList.add('streaming');return view;}
+  function createThinkingCard(){
+    const view=createStreamingCard();
+    view.card.classList.add('thinking');
+    view.label.childNodes[0].textContent='Meso';
+    const wrap=document.createElement('div');wrap.className='thinkingWrap';
+    const text=document.createElement('span');text.className='thinkingText';text.textContent='Thinking';
+    const dots=document.createElement('span');dots.className='typingDots';dots.setAttribute('aria-label','Meso is thinking');
+    dots.append(document.createElement('i'),document.createElement('i'),document.createElement('i'));
+    const elapsed=document.createElement('span');elapsed.className='thinkingElapsed';elapsed.textContent='0s';
+    wrap.append(text,dots,elapsed);view.body.replaceChildren(wrap);
+    const started=Date.now();
+    const timer=setInterval(()=>{elapsed.textContent=`${Math.max(1,Math.floor((Date.now()-started)/1000))}s`;},1000);
+    view.stopThinking=()=>clearInterval(timer);
+    messages.scrollTop=messages.scrollHeight;
+    return view;
+  }
+  function startStreamingInto(view){
+    if(!view)return;
+    if(typeof view.stopThinking==='function')view.stopThinking();
+    view.card.classList.remove('thinking');
+    view.body.replaceChildren();
+  }
   function finalizeStreamingCard(view,text,meta,userMessageId){
     if(!view)return addMessage('assistant',text,meta,{userMessageId});
-    view.card.classList.remove('streaming');view.label.childNodes[0].textContent='Assistant';if(meta)view.label.title=meta;
+    if(typeof view.stopThinking==='function')view.stopThinking();view.card.classList.remove('streaming','thinking');view.label.childNodes[0].textContent='Assistant';if(meta)view.label.title=meta;
     view.body.replaceChildren();
     if(typeof window.mesoRenderAssistant==='function')window.mesoRenderAssistant(view.body,text);else view.body.textContent=text;
     view.card.dataset.plainText=text;
@@ -174,15 +196,15 @@
     if(generationController||!validId(activeConversationId))return;
     const payload={conversation_id:activeConversationId};if(validId(regenerateMessageId))payload.regenerate_message_id=regenerateMessageId;else payload.message=message;const liteModel=requestedModel();if(liteModel)payload.model=liteModel;
     const controller=new AbortController();generationController=controller;generationStopped=false;
-    let deltaAccepted=false,fallbackEligible=true,userMessageId=validId(regenerateMessageId)?regenerateMessageId:'',streamText='',partial=null,donePayload=null;
-    setGenerationUi(true,`Streaming · Persona ${activePersona} · Conversation memory v1…`);
+    let deltaAccepted=false,fallbackEligible=true,userMessageId=validId(regenerateMessageId)?regenerateMessageId:'',streamText='',partial=createThinkingCard(),donePayload=null;
+    setGenerationUi(true,`Meso is thinking · ${aiVariant==='lite'?'Lite':'Standard'} · Persona ${activePersona}`);
     try{
       await streamRequest(payload,controller,async(eventName,data)=>{
         if(eventName==='meta'){
           const candidate=String(data?.user_message_id||'');if(validId(candidate))userMessageId=candidate;
           activePersona=String(data?.persona||activePersona);activeGrounding=String(data?.persona_grounding||activeGrounding);activeEvidenceCount=Number(data?.persona_records||activeEvidenceCount);
         }else if(eventName==='delta'){
-          const text=String(data?.text||'');if(!text)return;if(!partial)partial=createStreamingCard();streamText+=text;partial.body.textContent=streamText;deltaAccepted=true;fallbackEligible=false;messages.scrollTop=messages.scrollHeight;
+          const text=String(data?.text||'');if(!text)return;if(!partial)partial=createStreamingCard();if(!deltaAccepted)startStreamingInto(partial);streamText+=text;partial.body.textContent=streamText;deltaAccepted=true;fallbackEligible=false;status.textContent='Meso is replying…';messages.scrollTop=messages.scrollHeight;
         }else if(eventName==='done'){
           donePayload=data;
         }else if(eventName==='error'){
@@ -198,10 +220,10 @@
     }catch(error){
       if(error?.name==='AbortError'||generationStopped){if(partial)partial.card.remove();status.textContent='Generation stopped · user turn kept privately';}
       else if(fallbackEligible&&!deltaAccepted){
-        try{const body=await jsonFallback(payload,userMessageId);const fallbackUserId=String(body.user_message_id||userMessageId);if(!validId(fallbackUserId))throw new Error('invalid_user_message_id');activePersona=String(body.persona||activePersona);activeGrounding=String(body.persona_grounding||activeGrounding);activeEvidenceCount=Number(body.persona_records||activeEvidenceCount);addMessage('assistant',body.reply,responseMeta(body),{userMessageId:fallbackUserId});window.dispatchEvent(new CustomEvent('meso:memory-changed',{detail:{conversation_id:activeConversationId}}));emitConversationChanged();}
+        try{const body=await jsonFallback(payload,userMessageId);const fallbackUserId=String(body.user_message_id||userMessageId);if(!validId(fallbackUserId))throw new Error('invalid_user_message_id');activePersona=String(body.persona||activePersona);activeGrounding=String(body.persona_grounding||activeGrounding);activeEvidenceCount=Number(body.persona_records||activeEvidenceCount);finalizeStreamingCard(partial,body.reply,responseMeta(body),fallbackUserId);window.dispatchEvent(new CustomEvent('meso:memory-changed',{detail:{conversation_id:activeConversationId}}));emitConversationChanged();}
         catch(fallbackError){if(partial)partial.card.remove();addMessage('assistant',`Chat error: ${fallbackError.message}`,'system',{actions:false});}
       }else{if(partial)partial.card.remove();addMessage('assistant',`Streaming error: ${error.message}`,'system',{actions:false});}
-    }finally{generationController=null;generationStopped=false;setGenerationUi(false);autoHeight();input.focus();}
+    }finally{if(partial&&typeof partial.stopThinking==='function')partial.stopThinking();generationController=null;generationStopped=false;setGenerationUi(false);autoHeight();input.focus();}
   }
 
   async function regenerateMessage(userMessageId){const id=String(userMessageId||'');if(!validId(id)||generationController||send.disabled)return;await generate({regenerateMessageId:id});}

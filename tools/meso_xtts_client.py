@@ -63,7 +63,8 @@ def meso_references() -> tuple[list[str], str]:
                 fail("meso_reference_invalid")
             root = NATIVE_ALLOWED_ROOT.resolve()
             refs: list[str] = []
-            for item in raw[:MAX_MESO_REFERENCES]:
+            ranked = sorted(raw, key=lambda item: int(item.get('rank') or 999) if isinstance(item, dict) else 999)
+            for item in ranked[:2]:
                 if not isinstance(item, dict):
                     fail("meso_reference_invalid")
                 path = Path(str(item.get("path") or "")).resolve()
@@ -157,7 +158,7 @@ def synthesize_wav(text: str, language: str, refs: list[str]) -> bytes:
         method="POST",
     )
     try:
-        with urllib.request.urlopen(request, timeout=300) as response:
+        with urllib.request.urlopen(request, timeout=900) as response:
             if response.status != 200:
                 fail("xtts_http_error")
             if "audio/wav" not in str(response.headers.get("Content-Type", "")).lower():
