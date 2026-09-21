@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="meso_background">#07080D</color>
+    <color name="meso_accent">#8B5CF6</color>
+    <color name="meso_accent_light">#D8B4FE</color>
+    <color name="white">#FFFFFF</color>
+</resources>

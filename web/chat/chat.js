@@ -7,25 +7,33 @@
   if(!messages||!input||!send||!status)return;
 
   if(!document.querySelector('link[data-meso-chat-v2]')){
-    const css=document.createElement('link');css.rel='stylesheet';css.href='/meso/chat/chat-v2.css?v=20260910';css.dataset.mesoChatV2='1';document.head.appendChild(css);
+    const css=document.createElement('link');css.rel='stylesheet';css.href='/meso/chat/chat-v2.css?v=20260921h';css.dataset.mesoChatV2='1';document.head.appendChild(css);
   }
 
-  const AI_VARIANT_KEY='meso.aiVariant.v1';
+  const AI_VARIANT_KEY='meso.aiVariant.v3';
+  const FREE_TALK_KEY='meso.freeTalk.v1';
+  const QUICK_MODEL='qwen2.5:1.5b';
   const LITE_MODEL='qwen2.5:3b';
   const ICON_MIC='<svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="2" width="6" height="12" rx="3"/><path d="M5 10a7 7 0 0 0 14 0M12 19v3"/></svg>';
   const ICON_STOP='<svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor" aria-hidden="true"><rect x="6" y="6" width="12" height="12" rx="2"/></svg>';
-  const modelToggle=$('modelToggle');
-  function getAiVariant(){try{return localStorage.getItem(AI_VARIANT_KEY)==='lite'?'lite':'standard';}catch(_){return 'standard';}}
-  let aiVariant=getAiVariant();
-  function requestedModel(){return aiVariant==='lite'?LITE_MODEL:'';}
+  const modelToggle=$('modelToggle'),freeTalkToggle=$('freeTalkToggle');
+  function getAiVariant(){try{const value=localStorage.getItem(AI_VARIANT_KEY);return ['quick','lite','standard'].includes(value)?value:'lite';}catch(_){return 'lite';}}
+  function getFreeTalk(){try{const value=localStorage.getItem(FREE_TALK_KEY);return value===null?true:value==='1';}catch(_){return true;}}
+  let aiVariant=getAiVariant(),freeTalk=getFreeTalk();
+  function requestedModel(){return aiVariant==='quick'?QUICK_MODEL:aiVariant==='lite'?LITE_MODEL:'';}
+  function modelLabel(){return aiVariant==='quick'?'Quick':aiVariant==='lite'?'Lite':'Standard';}
   function refreshModelToggle(){
     if(!modelToggle)return;
-    const lite=aiVariant==='lite';
-    modelToggle.textContent=lite?'⚡ Lite':'Standard';
-    modelToggle.setAttribute('aria-pressed',lite?'true':'false');
-    modelToggle.title=lite?`Lite AI (${LITE_MODEL}) — faster replies`:'Standard AI — full quality';
+    const label=modelLabel();
+    modelToggle.textContent=aiVariant==='quick'?'⚡ Quick':label;
+    modelToggle.setAttribute('aria-pressed',aiVariant!=='standard'?'true':'false');
+    modelToggle.title=aiVariant==='quick'?`Quick AI (${QUICK_MODEL}) — lowest latency`:aiVariant==='lite'?`Lite AI (${LITE_MODEL}) — balanced`:'Standard AI — full quality';
     const strip=document.querySelector('[data-mobile-state="model"]');
-    if(strip)strip.textContent=lite?'AI · Lite':'AI · Standard';
+    if(strip)strip.textContent=`AI · ${label}`;
+  }
+  function refreshFreeTalkToggle(){
+    if(freeTalkToggle){freeTalkToggle.textContent=freeTalk?'🔓 Free':'🔒 Guarded';freeTalkToggle.setAttribute('aria-pressed',freeTalk?'true':'false');freeTalkToggle.title=freeTalk?'Free Talk ON — natural adult conversation':'Free Talk OFF — normal conversational mode';}
+    const strip=document.querySelector('[data-mobile-state="free-talk"]');if(strip){strip.textContent=freeTalk?'Mode · Free':'Mode · Guarded';strip.classList.toggle('good',freeTalk);}
   }
   function fmtTime(ts){const d=ts?new Date(Number(ts)*1000):new Date();if(Number.isNaN(d.getTime()))return '';return d.toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'});}
 
@@ -35,7 +43,7 @@
 
   const validId=(value)=>/^[a-f0-9]{64}$/.test(String(value||''));
   const stateJsonHeaders={'Content-Type':'application/json','Accept':'application/json'};
-  const baseStatus=()=>`Private · Persona ${activePersona} · Historical evidence ${activeEvidenceCount} · Conversation memory MESO v1 · STT local · Voice Meso${aiVariant==='lite'?' · AI Lite':''}`;
+  const baseStatus=()=>`Private · Persona ${activePersona} · Historical evidence ${activeEvidenceCount} · Memory ON · ${freeTalk?'Free Talk ON':'Free Talk OFF'} · STT local · Voice Meso · AI ${modelLabel()}`;
 
   function ensureStopButton(){
     let button=$('stopGeneration');
@@ -92,13 +100,41 @@
   }
 
   function createStreamingCard(){const view=addMessage('assistant','','',{actions:false,render:false});view.card.classList.add('streaming');return view;}
+  function createThinkingCard(){
+    const view=createStreamingCard();
+    view.card.classList.add('thinking');
+    view.label.childNodes[0].textContent='Meso';
+    const wrap=document.createElement('div');wrap.className='thinkingWrap';
+    const text=document.createElement('span');text.className='thinkingText';text.textContent='Thinking';
+    const dots=document.createElement('span');dots.className='typingDots';dots.setAttribute('aria-label','Meso is thinking');
+    dots.append(document.createElement('i'),document.createElement('i'),document.createElement('i'));
+    const elapsed=document.createElement('span');elapsed.className='thinkingElapsed';elapsed.textContent='0s';
+    wrap.append(text,dots,elapsed);view.body.replaceChildren(wrap);
+    const started=Date.now();
+    const timer=setInterval(()=>{elapsed.textContent=`${Math.max(1,Math.floor((Date.now()-started)/1000))}s`;},1000);
+    view.stopThinking=()=>clearInterval(timer);
+    messages.scrollTop=messages.scrollHeight;
+    return view;
+  }
+  function startStreamingInto(view){
+    if(!view)return;
+    if(typeof view.stopThinking==='function')view.stopThinking();
+    view.card.classList.remove('thinking');
+    view.body.replaceChildren();
+  }
+  function announceReplyReady(card,text){
+    const clean=String(text||'').trim();if(!clean)return;
+    window.dispatchEvent(new CustomEvent('meso:reply-finalized',{detail:{card,text:clean}}));
+    try{if(window.MesoNative&&typeof window.MesoNative.replyReady==='function')window.MesoNative.replyReady(clean);}catch(_){}
+  }
   function finalizeStreamingCard(view,text,meta,userMessageId){
     if(!view)return addMessage('assistant',text,meta,{userMessageId});
-    view.card.classList.remove('streaming');view.label.childNodes[0].textContent='Assistant';if(meta)view.label.title=meta;
+    if(typeof view.stopThinking==='function')view.stopThinking();view.card.classList.remove('streaming','thinking');view.label.childNodes[0].textContent='Assistant';if(meta)view.label.title=meta;
     view.body.replaceChildren();
     if(typeof window.mesoRenderAssistant==='function')window.mesoRenderAssistant(view.body,text);else view.body.textContent=text;
     view.card.dataset.plainText=text;
     if(typeof window.mesoAttachMessageActions==='function')window.mesoAttachMessageActions(view.card,{text,onRegenerate:validId(userMessageId)?()=>regenerateMessage(userMessageId):undefined});
+    announceReplyReady(view.card,text);
     messages.scrollTop=messages.scrollHeight;return view;
   }
 
@@ -118,7 +154,7 @@
       const label=row.querySelector('span:first-child'),pill=row.querySelector('.pill');if(!label||!pill)continue;
       const name=String(label.textContent||'').trim();
       if(name==='Persona'){pill.textContent=activePersona==='meso-v2'?'MESO v2':activePersona==='meso-v1'?'MESO v1':'OFF';pill.classList.toggle('good',activePersona!=='off');}
-      else if(name==='Conversation memory'){pill.textContent=state?.memory_enabled===false?'OFF':'MESO v1';pill.classList.toggle('good',state?.memory_enabled!==false);}
+      else if(name==='Conversation memory'){pill.textContent=state?.memory_enabled===false?'OFF':'ON · MESO v1';pill.classList.toggle('good',state?.memory_enabled!==false);}
       else if(name==='Historical evidence'){pill.textContent=activeGrounding==='evidence-retrieval'?activeEvidenceCount.toLocaleString():'OFF';pill.classList.toggle('good',activeGrounding==='evidence-retrieval');}
     }
     const empty=messages.querySelector('.empty');
@@ -126,8 +162,9 @@
     const composerNote=document.querySelector('.composer small');if(composerNote)composerNote.textContent='Private · Local STT + Meso voice';
     const strip=document.getElementById('mobileState');if(strip)strip.hidden=false;
     const mobilePersona=document.querySelector('[data-mobile-state="persona"]');if(mobilePersona)mobilePersona.textContent=`Persona · ${activePersona==='off'?'OFF':activePersona.toUpperCase()}`;
-    const mobileMemory=document.querySelector('[data-mobile-state="memory"]');if(mobileMemory){const enabled=state?.memory_enabled!==false;mobileMemory.textContent=`Memory · ${enabled?'MESO v1':'OFF'}`;mobileMemory.classList.toggle('good',enabled);}
+    const mobileMemory=document.querySelector('[data-mobile-state="memory"]');if(mobileMemory){const enabled=state?.memory_enabled!==false;mobileMemory.textContent=`Memory · ${enabled?'ON':'OFF'}`;mobileMemory.classList.toggle('good',enabled);}const memoryButton=$('memoryBtn');if(memoryButton)memoryButton.textContent=state?.memory_enabled===false?'Memory OFF':'Memory ON';
     refreshModelToggle();
+    refreshFreeTalkToggle();
     if(!send.disabled)status.textContent=baseStatus();
   }
 
@@ -148,7 +185,7 @@
   async function ensureConversation(){const stored=getStoredConversationId();if(stored){try{await loadMessages(stored);activeConversationId=stored;emitConversationChanged();return stored;}catch(error){if(error?.message==='chat_auth_required')throw error;storeConversationId('');}}const id=await createConversation();await loadMessages(id);return id;}
   async function newChat(){if(recording||transcribing||generationController||send.disabled)return '';setBusy(true,'Creating private conversation…');try{const id=await createConversation();await loadMessages(id);showEmpty('New conversation','A new private conversation is ready. Previous conversations remain stored privately on MASTER-PC.');return id;}catch(error){addMessage('assistant',`Could not create conversation: ${error.message}`,'system',{actions:false});return '';}finally{setBusy(false);autoHeight();input.focus();}}
 
-  function responseMeta(body){const persona=`persona · ${String(body?.persona||'off')}`;const grounding=String(body?.persona_grounding||'off');const groundingPart=grounding&&grounding!=='off'?` · ${grounding}`:'';const evidence=Number(body?.persona_evidence||0)>0?` · evidence ${Number(body.persona_evidence)}`:'';const remembered=Number(body?.memory_items_used||0)>0?` · memory ${Number(body.memory_items_used)}`:'';return `${body?.provider||''}${body?.model?` · ${body.model}`:''} · ${persona}${groundingPart}${evidence}${remembered}`;}
+  function responseMeta(body){const persona=`persona · ${String(body?.persona||'off')}`;const grounding=String(body?.persona_grounding||'off');const groundingPart=grounding&&grounding!=='off'?` · ${grounding}`:'';const evidence=Number(body?.persona_evidence||0)>0?` · evidence ${Number(body.persona_evidence)}`:'';const remembered=Number(body?.memory_items_used||0)>0?` · memory ${Number(body.memory_items_used)}`:'';const mode=body?.free_talk===true?' · free talk':'';return `${body?.provider||''}${body?.model?` · ${body.model}`:''} · ${persona}${groundingPart}${evidence}${remembered}${mode}`;}
 
   function parseSseFrame(frame){let eventName='message',data='';for(const line of frame.split('\n')){if(line.startsWith('event:'))eventName=line.slice(6).trim();else if(line.startsWith('data:'))data+=line.slice(5).trim();}if(!data)return null;let payload={};try{payload=JSON.parse(data);}catch(_){return null;}return {eventName,payload};}
   async function streamRequest(payload,controller,onEvent){
@@ -161,28 +198,38 @@
     buffer+=decoder.decode();if(buffer.trim()){const parsed=parseSseFrame(buffer);if(parsed)await onEvent(parsed.eventName,parsed.payload);}
   }
 
-  async function jsonFallback(payload,userMessageId){
+  async function jsonFallback(payload,userMessageId='',signal=null){
     const fallbackPayload={conversation_id:activeConversationId};
     if(validId(String(payload.regenerate_message_id||'')))fallbackPayload.regenerate_message_id=String(payload.regenerate_message_id);
     else if(validId(userMessageId))fallbackPayload.regenerate_message_id=userMessageId;
     else fallbackPayload.message=String(payload.message||'');
-    const liteModel=requestedModel();if(liteModel)fallbackPayload.model=liteModel;
-    const response=await fetch('/meso/api/chat.php',{method:'POST',credentials:'same-origin',cache:'no-store',headers:stateJsonHeaders,body:JSON.stringify(fallbackPayload)});const body=await readJson(response);if(!response.ok||!body.ok)throw new Error(body.message||body.error||`HTTP ${response.status}`);return body;
+    const liteModel=requestedModel();if(liteModel)fallbackPayload.model=liteModel;fallbackPayload.free_talk=freeTalk;
+    const response=await fetch('/meso/api/chat.php',{method:'POST',credentials:'same-origin',cache:'no-store',headers:stateJsonHeaders,body:JSON.stringify(fallbackPayload),signal});const body=await readJson(response);if(!response.ok||!body.ok)throw new Error(body.message||body.error||`HTTP ${response.status}`);return body;
   }
 
   async function generate({message='',regenerateMessageId=''}){
     if(generationController||!validId(activeConversationId))return;
-    const payload={conversation_id:activeConversationId};if(validId(regenerateMessageId))payload.regenerate_message_id=regenerateMessageId;else payload.message=message;const liteModel=requestedModel();if(liteModel)payload.model=liteModel;
+    const payload={conversation_id:activeConversationId,free_talk:freeTalk};if(validId(regenerateMessageId))payload.regenerate_message_id=regenerateMessageId;else payload.message=message;const liteModel=requestedModel();if(liteModel)payload.model=liteModel;
     const controller=new AbortController();generationController=controller;generationStopped=false;
-    let deltaAccepted=false,fallbackEligible=true,userMessageId=validId(regenerateMessageId)?regenerateMessageId:'',streamText='',partial=null,donePayload=null;
-    setGenerationUi(true,`Streaming · Persona ${activePersona} · Conversation memory v1…`);
+    let deltaAccepted=false,fallbackEligible=true,userMessageId=validId(regenerateMessageId)?regenerateMessageId:'',streamText='',partial=createThinkingCard(),donePayload=null;
+    setGenerationUi(true,`Meso is thinking · ${modelLabel()} · ${freeTalk?'Free Talk':'Guarded'} · Memory ON · Persona ${activePersona}`);
     try{
+      if(freeTalk){
+        fallbackEligible=false;
+        const body=await jsonFallback(payload,userMessageId,controller.signal);
+        const finalUserId=String(body.user_message_id||userMessageId);
+        if(!validId(finalUserId))throw new Error('invalid_user_message_id');
+        activePersona=String(body.persona||activePersona);activeGrounding=String(body.persona_grounding||activeGrounding);activeEvidenceCount=Number(body.persona_records||activeEvidenceCount);
+        finalizeStreamingCard(partial,String(body.reply||''),responseMeta(body),finalUserId);
+        window.dispatchEvent(new CustomEvent('meso:memory-changed',{detail:{conversation_id:activeConversationId}}));emitConversationChanged();
+        return;
+      }
       await streamRequest(payload,controller,async(eventName,data)=>{
         if(eventName==='meta'){
           const candidate=String(data?.user_message_id||'');if(validId(candidate))userMessageId=candidate;
           activePersona=String(data?.persona||activePersona);activeGrounding=String(data?.persona_grounding||activeGrounding);activeEvidenceCount=Number(data?.persona_records||activeEvidenceCount);
         }else if(eventName==='delta'){
-          const text=String(data?.text||'');if(!text)return;if(!partial)partial=createStreamingCard();streamText+=text;partial.body.textContent=streamText;deltaAccepted=true;fallbackEligible=false;messages.scrollTop=messages.scrollHeight;
+          const text=String(data?.text||'');if(!text)return;if(!partial)partial=createStreamingCard();if(!deltaAccepted)startStreamingInto(partial);streamText+=text;partial.body.textContent=streamText;deltaAccepted=true;fallbackEligible=false;status.textContent='Meso is replying…';messages.scrollTop=messages.scrollHeight;
         }else if(eventName==='done'){
           donePayload=data;
         }else if(eventName==='error'){
@@ -198,10 +245,10 @@
     }catch(error){
       if(error?.name==='AbortError'||generationStopped){if(partial)partial.card.remove();status.textContent='Generation stopped · user turn kept privately';}
       else if(fallbackEligible&&!deltaAccepted){
-        try{const body=await jsonFallback(payload,userMessageId);const fallbackUserId=String(body.user_message_id||userMessageId);if(!validId(fallbackUserId))throw new Error('invalid_user_message_id');activePersona=String(body.persona||activePersona);activeGrounding=String(body.persona_grounding||activeGrounding);activeEvidenceCount=Number(body.persona_records||activeEvidenceCount);addMessage('assistant',body.reply,responseMeta(body),{userMessageId:fallbackUserId});window.dispatchEvent(new CustomEvent('meso:memory-changed',{detail:{conversation_id:activeConversationId}}));emitConversationChanged();}
+        try{const body=await jsonFallback(payload,userMessageId,controller.signal);const fallbackUserId=String(body.user_message_id||userMessageId);if(!validId(fallbackUserId))throw new Error('invalid_user_message_id');activePersona=String(body.persona||activePersona);activeGrounding=String(body.persona_grounding||activeGrounding);activeEvidenceCount=Number(body.persona_records||activeEvidenceCount);finalizeStreamingCard(partial,body.reply,responseMeta(body),fallbackUserId);window.dispatchEvent(new CustomEvent('meso:memory-changed',{detail:{conversation_id:activeConversationId}}));emitConversationChanged();}
         catch(fallbackError){if(partial)partial.card.remove();addMessage('assistant',`Chat error: ${fallbackError.message}`,'system',{actions:false});}
-      }else{if(partial)partial.card.remove();addMessage('assistant',`Streaming error: ${error.message}`,'system',{actions:false});}
-    }finally{generationController=null;generationStopped=false;setGenerationUi(false);autoHeight();input.focus();}
+      }else{if(partial)partial.card.remove();addMessage('assistant',`${freeTalk?'Chat':'Streaming'} error: ${error.message}`,'system',{actions:false});}
+    }finally{if(partial&&typeof partial.stopThinking==='function')partial.stopThinking();generationController=null;generationStopped=false;setGenerationUi(false);autoHeight();input.focus();}
   }
 
   async function regenerateMessage(userMessageId){const id=String(userMessageId||'');if(!validId(id)||generationController||send.disabled)return;await generate({regenerateMessageId:id});}
@@ -219,8 +266,10 @@
 
   window.mesoActiveConversationId=()=>activeConversationId;
   window.mesoChatBridge={activateConversation,newConversation:newChat,reloadActive:()=>validId(activeConversationId)?activateConversation(activeConversationId):Promise.reject(new Error('invalid_conversation_id'))};
-  if(modelToggle)modelToggle.addEventListener('click',()=>{if(generationController||recording||transcribing)return;aiVariant=aiVariant==='lite'?'standard':'lite';try{localStorage.setItem(AI_VARIANT_KEY,aiVariant);}catch(_){}refreshModelToggle();if(!send.disabled)status.textContent=baseStatus();});
+  if(modelToggle)modelToggle.addEventListener('click',()=>{if(generationController||recording||transcribing)return;aiVariant=aiVariant==='lite'?'standard':aiVariant==='standard'?'quick':'lite';try{localStorage.setItem(AI_VARIANT_KEY,aiVariant);}catch(_){}refreshModelToggle();if(!send.disabled)status.textContent=baseStatus();});
+  if(freeTalkToggle)freeTalkToggle.addEventListener('click',()=>{if(generationController||recording||transcribing)return;freeTalk=!freeTalk;try{localStorage.setItem(FREE_TALK_KEY,freeTalk?'1':'0');}catch(_){}refreshFreeTalkToggle();if(!send.disabled)status.textContent=baseStatus();});
   refreshModelToggle();
+  refreshFreeTalkToggle();
   send.addEventListener('click',sendText);
   if(stopButton)stopButton.addEventListener('click',stopGeneration);
   if(newChatButton)newChatButton.addEventListener('click',()=>{const controller=window.mesoConversationController;if(controller&&typeof controller.newConversation==='function')controller.newConversation().catch(error=>addMessage('assistant',`Could not create conversation: ${error.message}`,'system',{actions:false}));else newChat();});
@@ -231,4 +280,4 @@
   status.textContent='Private · Loading Conversation memory v1…';send.disabled=true;input.disabled=true;if(mic)mic.disabled=true;bootstrapChat();
 })();
 
-const replyAudioScript=document.createElement('script');replyAudioScript.src='/meso/chat/reply-audio.js';replyAudioScript.defer=true;document.head.appendChild(replyAudioScript);
+const replyAudioScript=document.createElement('script');replyAudioScript.src='/meso/chat/reply-audio.js?v=20260921h';replyAudioScript.defer=true;document.head.appendChild(replyAudioScript);

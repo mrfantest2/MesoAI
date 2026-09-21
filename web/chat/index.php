@@ -33,6 +33,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 }
 
 $authorized = meso_chat_is_authorized();
+$nativeApp = stripos((string)($_SERVER['HTTP_USER_AGENT'] ?? ''), 'MesoAIChatAndroid/') !== false;
 $queryToken = trim((string)($_GET['token'] ?? ''));
 $inviteValid = false;
 if (!$authorized && $queryToken !== '') {
@@ -59,6 +60,7 @@ if (!$authorized && !$inviteValid && !isset($gateError)) http_response_code(403)
 <style>
 :root{color-scheme:dark;--bg:#07080d;--panel:#0f121b;--panel2:#151925;--line:#252b3a;--txt:#f6f7fb;--muted:#9299aa;--accent:#d8b4fe;--accent2:#8b5cf6;--good:#63dda9;--warn:#f1c66f;--bad:#ff8b9a}
 *{box-sizing:border-box}[hidden]{display:none!important}
+.nativeApp [data-install-app]{display:none!important}
 html,body{margin:0;width:100%;height:100%;min-height:100%;overflow:hidden;overscroll-behavior:none;background:radial-gradient(circle at 50% -15%,#2b203f 0,#0b0d14 31%,var(--bg) 62%);font:15px/1.45 Inter,ui-sans-serif,system-ui,-apple-system,Segoe UI,Roboto,Arial;color:var(--txt)}
 button,textarea,a{font:inherit}
 .shell{height:100dvh;max-height:100dvh;min-height:100dvh;overflow:hidden;display:grid;grid-template-columns:280px minmax(0,1fr)}
@@ -73,10 +75,10 @@ button,textarea,a{font:inherit}
 .gate{min-height:100dvh;display:grid;place-items:center;padding:20px}.gateCard{width:min(520px,100%);border:1px solid var(--line);border-radius:22px;background:linear-gradient(180deg,var(--panel2),var(--panel));padding:24px;box-shadow:0 24px 80px rgba(0,0,0,.35)}.gateCard h1{margin:0 0 9px;font-size:28px}.gateCard p{color:var(--muted)}.gateCard button{width:100%;height:46px;border:1px solid #7e5cb2;border-radius:12px;color:white;background:linear-gradient(180deg,#7650aa,#583b82);cursor:pointer}.err{padding:10px 12px;border:1px solid #693b45;background:#2a171c;color:#ffb0ba;border-radius:12px;margin:12px 0}.back{color:var(--accent);text-decoration:none}
 .installSheet,.conversationDrawer{position:fixed;inset:0;z-index:30;display:grid;place-items:end center;background:rgba(0,0,0,.56);padding:16px}.installCard,.drawerCard{width:min(520px,100%);position:relative;border:1px solid var(--line);border-radius:20px;background:linear-gradient(180deg,var(--panel2),var(--panel));padding:21px;box-shadow:0 30px 90px rgba(0,0,0,.48);margin-bottom:max(0px,env(safe-area-inset-bottom))}.installCard strong{display:block;font-size:19px;padding-right:38px}.installCard p{color:var(--muted);margin:9px 0 0;line-height:1.6}.installClose{position:absolute;right:12px;top:12px;width:34px;height:34px;border-radius:10px;border:1px solid var(--line);background:#171b27;color:var(--txt);cursor:pointer;font-size:20px}.memoryList{display:grid;gap:9px;max-height:min(52dvh,520px);overflow:auto;margin-top:14px}.memoryClear{width:100%;margin-top:14px;border:1px solid #693b45;border-radius:11px;padding:10px;background:#2a171c;color:#ffb0ba;cursor:pointer}.drawerCard{max-height:86dvh;display:flex;flex-direction:column}.drawerTitle{font-size:19px;font-weight:800;padding-right:40px}.drawerNew{margin:14px 0 4px;border:1px solid #654a8a;border-radius:11px;background:#211a30;color:var(--txt);padding:11px;cursor:pointer}.drawerSection{margin-top:12px;min-height:0}.drawerSection .conversationList{max-height:30dvh}.drawerSection .conversationRow{background:#111520}
 @media(min-width:761px){.installSheet{place-items:center}.installCard{margin-bottom:0}.conversationDrawer{display:none!important}}
-@media(max-width:760px){.shell{grid-template-columns:1fr}.side{display:none}.top{height:58px;padding:0 10px}.top strong{min-width:0;overflow:hidden;text-overflow:ellipsis}.chat{width:100%;padding:0 8px calc(8px + env(safe-area-inset-bottom))}.mobileState{display:flex;flex:0 0 auto;gap:6px;overflow-x:auto;padding:7px 8px;border-bottom:1px solid var(--line);background:rgba(15,18,27,.92);scrollbar-width:none}.mobileState::-webkit-scrollbar{display:none}.mobileState .pill{white-space:nowrap;flex:0 0 auto}.messages{padding:16px 2px 10px}.msg{max-width:94%}.composeRow{grid-template-columns:auto minmax(0,1fr) auto}.send{grid-column:auto;width:auto;padding:0 14px}.top span{display:none}.installTop,.memoryTop,.conversationTop,.modelToggle{padding:7px 8px;font-size:11px}.conversationTop{display:inline-block}.memoryTop{margin-left:auto}.installTop{display:inline-block!important}.composer small{display:none}.messageAction{min-height:40px;padding:8px 10px}.send .sendLabel{display:none}.send{padding:0!important;width:48px!important}.mic{width:48px}}
+@media(max-width:760px){.shell{grid-template-columns:1fr}.side{display:none}.top{height:58px;padding:0 10px}.top strong{display:none}.chat{width:100%;padding:0 8px calc(8px + env(safe-area-inset-bottom))}.mobileState{display:flex;flex:0 0 auto;gap:6px;overflow-x:auto;padding:7px 8px;border-bottom:1px solid var(--line);background:rgba(15,18,27,.92);scrollbar-width:none}.mobileState::-webkit-scrollbar{display:none}.mobileState .pill{white-space:nowrap;flex:0 0 auto}.messages{padding:16px 2px 10px}.msg{max-width:94%}.composeRow{grid-template-columns:auto minmax(0,1fr) auto}.send{grid-column:auto;width:auto;padding:0 14px}.top span{display:none}.installTop,.memoryTop,.conversationTop,.modelToggle{padding:7px 8px;font-size:11px}.conversationTop{display:inline-block}.memoryTop{margin-left:auto}.installTop{display:inline-block!important}.composer small{display:none}.messageAction{min-height:40px;padding:8px 10px}.send .sendLabel{display:none}.send{padding:0!important;width:48px!important}.mic{width:48px}}
 </style>
 </head>
-<body>
+<body class="<?=$nativeApp ? 'nativeApp' : ''?>">
 <?php if (!$authorized): ?>
 <div class="gate"><main class="gateCard"><div class="brand"><div class="mark">M</div>MesoAI</div><h1>Private chat</h1>
 <?php if (isset($gateError)): ?><div class="err"><?=htmlspecialchars($gateError, ENT_QUOTES, 'UTF-8')?></div><?php endif; ?>
@@ -93,11 +95,12 @@ button,textarea,a{font:inherit}
   <div class="brand"><div class="mark">M</div>MesoAI</div>
   <div class="panel">
     <div class="label">Private state</div>
-    <div class="status"><span>Memory</span><span class="pill good">MESO v1</span></div>
+    <div class="status"><span>Memory</span><span class="pill good">ON · MESO v1</span></div>
     <div class="status"><span>Persona</span><span class="pill good">MESO v1</span></div>
     <div class="status"><span>Speech to text</span><span class="pill good">LOCAL</span></div>
     <div class="status"><span>Cloned voice</span><span class="pill good">MESO VOICE</span></div>
     <div class="status"><span>Chat</span><span class="pill good">PRIVATE</span></div>
+    <div class="status"><span>Free Talk</span><span class="pill good">ON</span></div>
   </div>
   <div class="panel conversationPanel">
     <div class="conversationPanelHead"><div class="label">Conversations</div><button id="newChatBtn" type="button" aria-label="New conversation">＋</button></div>
@@ -115,15 +118,19 @@ button,textarea,a{font:inherit}
   <header class="top">
     <button id="conversationDrawerToggle" class="conversationTop" type="button" aria-label="Open conversations">☰</button>
     <strong>MesoAI · Chat</strong>
-    <span id="status">Private · Persona meso-v1 · Memory meso-v1 · Local STT</span>
-    <button id="memoryBtn" class="memoryTop" type="button">Memory</button>
-    <button id="modelToggle" class="modelToggle" type="button" aria-pressed="false" title="Switch between Standard and Lite AI models">Standard</button>
+    <span id="status">Private · Persona meso-v1 · Memory ON · Free Talk ON · Local STT</span>
+    <button id="memoryBtn" class="memoryTop" type="button">Memory ON</button>
+    <button id="modelToggle" class="modelToggle" type="button" aria-pressed="true" title="Switch between Lite, Standard, and Quick AI models">Lite</button>
+    <button id="freeTalkToggle" class="modelToggle" type="button" aria-pressed="true" title="Free Talk ON — natural adult conversation">🔓 Free</button>
+    <button id="voiceAutoToggle" class="modelToggle" type="button" aria-pressed="false" title="Prepare voice replies and optionally play automatically">🔈 Voice</button>
     <button class="installTop" data-install-app type="button" hidden aria-hidden="true">Install app</button>
   </header>
   <div class="mobileState" id="mobileState" aria-label="Private chat status" hidden>
-    <span class="pill good" data-mobile-state="memory">Memory · MESO v1</span>
+    <span class="pill good" data-mobile-state="memory">Memory · ON</span>
     <span class="pill good" data-mobile-state="persona">Persona · MESO v1</span>
-    <span class="pill good" data-mobile-state="model">AI · Standard</span>
+    <span class="pill good" data-mobile-state="model">AI · Lite</span>
+    <span class="pill good" data-mobile-state="free-talk">Mode · Free</span>
+    <span class="pill" data-mobile-state="voice">Voice · Manual</span>
   </div>
   <div class="chat">
     <section id="messages" class="messages"><div class="empty"><div class="orb">✦</div><strong>Meso Persona is ready</strong><div style="margin-top:7px">Conversation Memory v1 is loading. Historical Persona evidence remains separate from generated conversation content.</div></div></section>
@@ -153,10 +160,10 @@ button,textarea,a{font:inherit}
 </div>
 
 <div id="installSheet" class="installSheet" hidden aria-hidden="true"><section class="installCard" role="dialog" aria-modal="true" aria-labelledby="installSheetTitle"><button id="installSheetClose" class="installClose" type="button" aria-label="Close install instructions">×</button><strong id="installSheetTitle">Install MesoAI</strong><p id="installSheetText">Install MesoAI on your home screen.</p></section></div>
-<script src="/meso/chat/render.js?v=20260910" defer></script>
-<script src="/meso/chat/chat.js?v=20260910" defer></script>
-<script src="/meso/chat/conversations.js?v=20260910" defer></script>
-<script src="/meso/chat/memory.js?v=20260910" defer></script>
+<script src="/meso/chat/render.js?v=20260921h" defer></script>
+<script src="/meso/chat/chat.js?v=20260921h" defer></script>
+<script src="/meso/chat/conversations.js?v=20260921h" defer></script>
+<script src="/meso/chat/memory.js?v=20260921h" defer></script>
 <script src="/meso/pwa/install.js?v=20260910" defer></script>
 <?php endif; ?>
 </body>

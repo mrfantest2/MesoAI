@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import shutil
 import subprocess
@@ -23,6 +24,8 @@ MAX_TEXT = 1200
 MAX_WAV = 32 * 1024 * 1024
 MAX_MP3 = 8 * 1024 * 1024
 MAX_REQUEST_BYTES = 16 * 1024
+NATIVE_PROFILE = Path(r"C:\\MesoAI\\private\\profile-v1\\native-meso-v2.json")
+NATIVE_ALLOWED_ROOT = Path(r"C:\\MesoAI\\private\\profile-v1\\source\\normalized")
 
 
 def fail(message: str) -> "NoReturn":
@@ -52,6 +55,32 @@ def read_request() -> dict:
 
 
 def meso_references() -> tuple[list[str], str]:
+    if NATIVE_PROFILE.is_file():
+        try:
+            data = json.loads(NATIVE_PROFILE.read_text(encoding="utf-8-sig"))
+            raw = data.get("references") if isinstance(data, dict) else None
+            if data.get("profile") != "meso-v2" or data.get("synthesis_allowed") is not True or not isinstance(raw, list):
+                fail("meso_reference_invalid")
+            root = NATIVE_ALLOWED_ROOT.resolve()
+            refs: list[str] = []
+            ranked = sorted(raw, key=lambda item: int(item.get('rank') or 999) if isinstance(item, dict) else 999)
+            for item in ranked[:2]:
+                if not isinstance(item, dict):
+                    fail("meso_reference_invalid")
+                path = Path(str(item.get("path") or "")).resolve()
+                path.relative_to(root)
+                expected = str(item.get("sha256") or "").lower()
+                if not path.is_file() or path.stat().st_size <= 44 or len(expected) != 64:
+                    fail("meso_reference_invalid")
+                if hashlib.sha256(path.read_bytes()).hexdigest() != expected:
+                    fail("meso_reference_invalid")
+                refs.append(str(path))
+            if not (2 <= len(refs) <= MAX_MESO_REFERENCES):
+                fail("meso_reference_invalid")
+            return refs, "meso-v2"
+        except (OSError, ValueError, json.JSONDecodeError, TypeError):
+            fail("meso_reference_invalid")
+
     docker = shutil.which("docker")
     if not docker:
         fail("docker_unavailable")
@@ -129,7 +158,7 @@ def synthesize_wav(text: str, language: str, refs: list[str]) -> bytes:
         method="POST",
     )
     try:
-        with urllib.request.urlopen(request, timeout=300) as response:
+        with urllib.request.urlopen(request, timeout=900) as response:
             if response.status != 200:
                 fail("xtts_http_error")
             if "audio/wav" not in str(response.headers.get("Content-Type", "")).lower():

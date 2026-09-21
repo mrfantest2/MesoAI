@@ -8,6 +8,31 @@ header('Pragma: no-cache');
 header('X-Content-Type-Options: nosniff');
 header('Referrer-Policy: no-referrer');
 
+function meso_chat_user_requests_repetition(string $message): bool {
+    return (bool)preg_match('/\b(repeat|again|same|exactly|verbatim)\b/iu',$message)
+        || (bool)preg_match('/(كرر|كرري|عيد|عيدي|نفس|بالضبط|حرفيا|حرفيًا)/u',$message);
+}
+
+function meso_chat_reply_is_repetitive(string $reply,array $recent): bool {
+    $normal=meso_persona_normalize($reply);
+    if($normal==='') return false;
+    $tokens=array_values(array_unique(array_filter(preg_split('/\s+/u',$normal)?:[],static fn($v)=>mb_strlen((string)$v)>=2)));
+    $set=array_fill_keys($tokens,true);
+    foreach($recent as $item){
+        if(!is_array($item)||(string)($item['role']??'')!=='assistant') continue;
+        $other=meso_persona_normalize((string)($item['content']??''));
+        if($other==='') continue;
+        if(hash_equals(hash('sha256',$normal),hash('sha256',$other))) return true;
+        $otherTokens=array_values(array_unique(array_filter(preg_split('/\s+/u',$other)?:[],static fn($v)=>mb_strlen((string)$v)>=2)));
+        if(count($tokens)<4||count($otherTokens)<4) continue;
+        $otherSet=array_fill_keys($otherTokens,true);
+        $intersection=count(array_intersect_key($set,$otherSet));
+        $union=count($set+$otherSet);
+        if($union>0&&($intersection/$union)>=0.68) return true;
+    }
+    return false;
+}
+
 function meso_chat_json_fail(Throwable $e): never {
     $status=meso_chat_error_status($e);
     $code=$e->getMessage();
@@ -42,7 +67,7 @@ if(!is_array($body)) meso_chat_json_fail(new InvalidArgumentException('invalid_j
 
 try {
     $prepared=meso_chat_prepare_request($body);
-    $context=meso_chat_context_for((string)$prepared['conversation_id'],(string)$prepared['message']);
+    $context=meso_chat_context_for((string)$prepared['conversation_id'],(string)$prepared['message'],(bool)($prepared['free_talk']??false));
     $userMessage=meso_chat_persist_user_turn($prepared);
 } catch(InvalidArgumentException $e) {
     meso_chat_json_fail($e);
@@ -56,6 +81,7 @@ try {
     $model=meso_chat_requested_model($body,(string)$cfg['provider'],(string)$cfg['model']);
     $reply='';
     $responseModel=$model;
+    $repetitionRetry=false;
 
     if($provider==='ollama') {
         $response=meso_chat_curl_json(
@@ -64,14 +90,51 @@ try {
                 'model'=>$model,
                 'messages'=>meso_chat_ollama_messages($prepared,$context),
                 'stream'=>false,
-                'keep_alive'=>-1,
-                'options'=>['num_predict'=>900],
+                'keep_alive'=>0,
+                'options'=>array_filter([
+                    'num_predict'=>meso_chat_num_predict($model),
+                    'temperature'=>($prepared['free_talk']??false)?0.85:null,
+                    'top_p'=>($prepared['free_talk']??false)?0.92:null,
+                    'repeat_penalty'=>($prepared['free_talk']??false)?1.12:null,
+                    'repeat_last_n'=>($prepared['free_talk']??false)?192:null,
+                ],static fn($value)=>$value!==null),
             ],
             ['Content-Type: application/json','Accept: application/json'],
             300
         );
         $reply=trim((string)($response['message']['content']??''));
         $responseModel=(string)($response['model']??$model);
+        if(($prepared['free_talk']??false)===true && $reply!=='' && !meso_chat_user_requests_repetition((string)$prepared['message']) && meso_chat_reply_is_repetitive($reply,(array)($prepared['recent']??[]))) {
+            $retryModel=$model==='qwen2.5:1.5b'?'qwen2.5:3b':($model==='qwen2.5:3b'?'qwen2.5:7b':$model);
+            $retryMessages=meso_chat_ollama_messages($prepared,$context);
+            $lastUser=array_pop($retryMessages);
+            $retryMessages[]=['role'=>'system','content'=>'The previous draft was rejected because it repeated an earlier assistant reply. Give a genuinely fresh response with different wording, a different opening, and direct attention to the user\'s current message. Do not reintroduce yourself.'];
+            if(is_array($lastUser)) $retryMessages[]=$lastUser;
+            $retry=meso_chat_curl_json(
+                (string)$cfg['base_url'].'/api/chat',
+                [
+                    'model'=>$retryModel,
+                    'messages'=>$retryMessages,
+                    'stream'=>false,
+                    'keep_alive'=>0,
+                    'options'=>[
+                        'num_predict'=>meso_chat_num_predict($retryModel),
+                        'temperature'=>0.9,
+                        'top_p'=>0.95,
+                        'repeat_penalty'=>1.18,
+                        'repeat_last_n'=>256,
+                    ],
+                ],
+                ['Content-Type: application/json','Accept: application/json'],
+                300
+            );
+            $retryReply=trim((string)($retry['message']['content']??''));
+            if($retryReply!==''){
+                $reply=$retryReply;
+                $responseModel=(string)($retry['model']??$retryModel);
+                $repetitionRetry=true;
+            }
+        }
     } else {
         $response=meso_chat_curl_json(
             'https://api.openai.com/v1/responses',
@@ -97,6 +160,7 @@ try {
         'provider'=>$provider,
         'model'=>$responseModel,
         'message_id'=>$assistantMessage['id'],
+        'repetition_retry'=>$repetitionRetry,
     ],$resultBase),JSON_UNESCAPED_SLASHES|JSON_UNESCAPED_UNICODE);
 } catch(InvalidArgumentException $e) {
     meso_chat_json_fail($e);

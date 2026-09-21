@@ -222,7 +222,7 @@ function meso_persona_retrieve(string $message, int $limit = 6): array {
     return $out;
 }
 
-function meso_persona_context(string $message): array {
+function meso_persona_context(string $message, bool $freeTalk = false): array {
     $p = meso_persona_load();
     if (!$p['enabled']) return ['instructions'=>'','evidence_count'=>0,'evidence'=>[]];
 
@@ -230,10 +230,38 @@ function meso_persona_context(string $message): array {
     $constraints = implode("\n- ", array_map(static fn($v) => mb_substr((string)$v, 0, 360), $p['constraints']));
 
     if ($p['version'] === 'meso-v2') {
-        $evidence = meso_persona_retrieve($message, 6);
-        $samples = array_slice($p['style_samples'], 0, 8);
+        $personalCue = meso_persona_memory_query($message) || (bool)preg_match('/\b(your|yours|favorite|favourite|grew up|childhood|family|remember|used to|where did|when did)\b/iu', $message) || (bool)preg_match('/(بتحبي|تحبي|بتحب|ذكري|تذكري|بتتذكري|طفولت|عيلت|اهلك|وين كنت|شو كنت|شو بتحبي|مين كان)/u', $message);
+        $evidence = (!$freeTalk || $personalCue) ? meso_persona_retrieve($message, 6) : [];
+        $arabicChars = preg_match_all('/[\x{0600}-\x{06FF}]/u', $message, $unusedArabic);
+        $latinChars = preg_match_all('/[A-Za-z]/u', $message, $unusedLatin);
+        $languageRule = $arabicChars > $latinChars
+            ? 'Reply only in Arabic for this turn. Do not switch to English, Chinese, or another language unless the user does.'
+            : 'Reply only in English for this turn. Do not switch to Arabic, Chinese, or another language unless the user does.';
+        $sampleCandidates = $p['style_samples'];
+        if ($freeTalk) {
+            $wantArabic = $arabicChars > $latinChars;
+            $sampleCandidates = array_values(array_filter($sampleCandidates, static function($sample) use ($wantArabic): bool {
+                $sample = (string)$sample;
+                $hasArabic = (bool)preg_match('/[\x{0600}-\x{06FF}]/u', $sample);
+                $hasLatin = (bool)preg_match('/[A-Za-z]/u', $sample);
+                return $wantArabic ? $hasArabic : ($hasLatin && !$hasArabic);
+            }));
+        }
+        $samples = array_slice($sampleCandidates, 0, $freeTalk ? 2 : 8);
         $sampleBlock = $samples ? json_encode($samples, JSON_UNESCAPED_SLASHES|JSON_UNESCAPED_UNICODE) : '[]';
         $evidenceBlock = $evidence ? json_encode($evidence, JSON_UNESCAPED_SLASHES|JSON_UNESCAPED_UNICODE) : '[]';
+        if ($freeTalk) {
+            $instructions = "Meso Persona v2 conversational style is enabled.\n"
+                . "Speak naturally in Meso's conversational style without repeatedly introducing yourself, naming yourself, or explaining what MesoAI is unless the user asks.\n"
+                . $languageRule . "\n"
+                . "Continue the flow instead of restarting the conversation each turn. Vary wording and avoid repeating the previous assistant reply.\n"
+                . "Use retrieved historical evidence only when it is actually relevant to a personal-history question. Never turn archive metadata into dialogue.\n"
+                . "Style guidance:\n- {$style}\n"
+                . "Private style examples (imitate rhythm and phrasing only; do not quote them as facts): {$sampleBlock}\n"
+                . "Relevant historical evidence, if any: {$evidenceBlock}\n"
+                . "Do not invent memories, quotations, biography, relationships, dates, medical facts, or private history when evidence is absent.";
+            return ['instructions'=>$instructions,'evidence_count'=>count($evidence),'evidence'=>$evidence];
+        }
         $instructions = "Meso Persona v2 is enabled as an AI simulation grounded in supplied historical material.\n"
             . "You are MesoAI, not the real Maissoun/Meso. Do not claim generated sentences are authentic historical statements.\n"
             . "Conversation Memory v1, when enabled by chat, is a separate generated conversation store. It is never part of historical Persona evidence. Historical source records are a separate evidence store and may be used only when relevant.\n"

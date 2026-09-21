@@ -57,8 +57,8 @@ if (!is_dir($tmpRoot) && !@mkdir($tmpRoot, 0700, true) && !is_dir($tmpRoot)) {
     exit;
 }
 
-$python = trim((string)(getenv('MESO_CHAT_STT_PYTHON') ?: 'C:\\ProgramData\\KhalilDigitalTwin\\meso\\fish-whisper-venv\\Scripts\\python.exe'));
-$script = trim((string)(getenv('MESO_CHAT_STT_SCRIPT') ?: 'C:\\ProgramData\\KhalilDigitalTwin\\meso\\chat-stt\\transcribe_chat_audio.py'));
+$python = trim((string)(getenv('MESO_CHAT_STT_PYTHON') ?: 'C:\\MesoAI\\runtime\\stt-venv\\Scripts\\python.exe'));
+$script = trim((string)(getenv('MESO_CHAT_STT_SCRIPT') ?: 'C:\\MesoAI\\runtime\\chat-stt\\transcribe_chat_audio.py'));
 if (!is_file($python) || !is_file($script)) {
     http_response_code(503);
     echo json_encode(['ok' => false, 'error' => 'local_stt_runtime_not_ready']);
