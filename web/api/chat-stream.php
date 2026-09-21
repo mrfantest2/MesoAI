@@ -45,7 +45,7 @@ if(!is_array($body)) meso_chat_stream_preflight_fail(new InvalidArgumentExceptio
 
 try {
     $prepared=meso_chat_prepare_request($body);
-    $context=meso_chat_context_for((string)$prepared['conversation_id'],(string)$prepared['message']);
+    $context=meso_chat_context_for((string)$prepared['conversation_id'],(string)$prepared['message'],(bool)($prepared['free_talk']??false));
     $userMessage=meso_chat_persist_user_turn($prepared);
     $cfg=meso_chat_provider_config();
     $requestedModel=meso_chat_requested_model($body,(string)$cfg['provider'],(string)$cfg['model']);
@@ -88,7 +88,11 @@ if($provider==='ollama'){
         'messages'=>meso_chat_ollama_messages($prepared,$context),
         'stream'=>true,
         'keep_alive'=>0,
-        'options'=>['num_predict'=>meso_chat_num_predict($model)],
+        'options'=>array_filter([
+            'num_predict'=>meso_chat_num_predict($model),
+            'temperature'=>($prepared['free_talk']??false)?0.85:null,
+            'top_p'=>($prepared['free_talk']??false)?0.92:null,
+        ],static fn($value)=>$value!==null),
     ];
     $ch=curl_init((string)$cfg['base_url'].'/api/chat');
     curl_setopt_array($ch,[

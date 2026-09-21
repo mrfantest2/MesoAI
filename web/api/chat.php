@@ -42,7 +42,7 @@ if(!is_array($body)) meso_chat_json_fail(new InvalidArgumentException('invalid_j
 
 try {
     $prepared=meso_chat_prepare_request($body);
-    $context=meso_chat_context_for((string)$prepared['conversation_id'],(string)$prepared['message']);
+    $context=meso_chat_context_for((string)$prepared['conversation_id'],(string)$prepared['message'],(bool)($prepared['free_talk']??false));
     $userMessage=meso_chat_persist_user_turn($prepared);
 } catch(InvalidArgumentException $e) {
     meso_chat_json_fail($e);
@@ -65,7 +65,11 @@ try {
                 'messages'=>meso_chat_ollama_messages($prepared,$context),
                 'stream'=>false,
                 'keep_alive'=>0,
-                'options'=>['num_predict'=>meso_chat_num_predict($model)],
+                'options'=>array_filter([
+                    'num_predict'=>meso_chat_num_predict($model),
+                    'temperature'=>($prepared['free_talk']??false)?0.85:null,
+                    'top_p'=>($prepared['free_talk']??false)?0.92:null,
+                ],static fn($value)=>$value!==null),
             ],
             ['Content-Type: application/json','Accept: application/json'],
             300
