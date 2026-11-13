@@ -2,6 +2,12 @@
 declare(strict_types=1);
 require_once dirname(__DIR__) . DIRECTORY_SEPARATOR . 'includes' . DIRECTORY_SEPARATOR . 'chat_auth.php';
 meso_chat_require_json_auth();
+// Audio retrieval is read-only. Reject unexpected methods before opening private media.
+if (!in_array(strtoupper((string)($_SERVER['REQUEST_METHOD'] ?? '')), ['GET', 'HEAD'], true)) {
+    http_response_code(405);
+    header('Allow: GET, HEAD');
+    exit;
+}
 header('Cache-Control: no-store, private');
 header('Pragma: no-cache');
 header('X-Content-Type-Options: nosniff');
