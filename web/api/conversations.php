@@ -59,7 +59,9 @@ $body = meso_conversations_body();
 try {
     if ($method === 'POST') {
         $title = is_string($body['title'] ?? null) ? (string)$body['title'] : 'New conversation';
-        meso_conversations_json(201, ['ok'=>true,'conversation'=>meso_memory_create_conversation($title),'memory'=>'meso-memory-v1']);
+        $audience = $body['audience'] ?? null;
+        if (!is_string($audience) || !in_array($audience,['majid','mira'],true)) meso_conversations_json(400,['ok'=>false,'error'=>'identity_required']);
+        meso_conversations_json(201, ['ok'=>true,'conversation'=>meso_memory_create_conversation($title,$audience),'memory'=>'meso-memory-v1']);
     }
 
     $conversationId = strtolower(trim((string)($body['conversation_id'] ?? '')));

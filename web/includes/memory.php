@@ -1,7 +1,7 @@
 <?php
 declare(strict_types=1);
 
-const MESO_MEMORY_SCHEMA_VERSION = 1;
+const MESO_MEMORY_SCHEMA_VERSION = 2;
 
 function meso_memory_root(): string {
     $override = PHP_SAPI === 'cli' ? trim((string)(getenv('MESO_MEMORY_ROOT') ?: '')) : '';
@@ -58,7 +58,8 @@ function meso_memory_connect(string $path): PDO {
                 created_at INTEGER NOT NULL,
                 updated_at INTEGER NOT NULL,
                 archived_at INTEGER NULL,
-                deleted_at INTEGER NULL
+                deleted_at INTEGER NULL,
+                audience TEXT NULL CHECK(audience IN ('majid','mira'))
             )");
             $db->exec("CREATE TABLE messages (
                 seq INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -99,6 +100,17 @@ function meso_memory_connect(string $path): PDO {
         }
     }
 
+    if ($version === 1) {
+        $db->beginTransaction();
+        try {
+            $db->exec("ALTER TABLE conversations ADD COLUMN audience TEXT NULL CHECK(audience IN ('majid','mira'))");
+            $db->exec('PRAGMA user_version=2');
+            $db->commit();
+        } catch (Throwable $e) {
+            if ($db->inTransaction()) $db->rollBack();
+            throw $e;
+        }
+    }
     try { $db->exec('PRAGMA journal_mode=WAL'); } catch (Throwable $e) { /* single-host fallback remains valid */ }
     return $db;
 }
@@ -118,30 +130,33 @@ function meso_memory_map_conversation(array $row): array {
     return [
         'id'=>(string)$row['id'],
         'title'=>(string)$row['title'],
+        'audience'=>in_array(($row['audience']??null),['majid','mira'],true)?(string)$row['audience']:null,
         'created_at'=>(int)$row['created_at'],
         'updated_at'=>(int)$row['updated_at'],
         'archived'=>$row['archived_at'] !== null,
     ];
 }
 
-function meso_memory_create_conversation(string $title = 'New conversation'): array {
+function meso_memory_create_conversation(string $title = 'New conversation', ?string $audience = null): array {
+    if ($audience !== null && !in_array($audience,['majid','mira'],true)) throw new InvalidArgumentException('invalid_audience');
     $db = meso_memory_db();
     $now = time();
     $row = [
         'id'=>meso_memory_new_id(),
         'title'=>meso_memory_normalize_title($title),
+        'audience'=>$audience,
         'created_at'=>$now,
         'updated_at'=>$now,
         'archived_at'=>null,
     ];
-    $stmt = $db->prepare('INSERT INTO conversations(id,title,created_at,updated_at,archived_at,deleted_at) VALUES(:id,:title,:created_at,:updated_at,NULL,NULL)');
-    $stmt->execute([':id'=>$row['id'], ':title'=>$row['title'], ':created_at'=>$now, ':updated_at'=>$now]);
+    $stmt = $db->prepare('INSERT INTO conversations(id,title,created_at,updated_at,archived_at,deleted_at,audience) VALUES(:id,:title,:created_at,:updated_at,NULL,NULL,:audience)');
+    $stmt->execute([':id'=>$row['id'], ':title'=>$row['title'], ':created_at'=>$now, ':updated_at'=>$now, ':audience'=>$audience]);
     return meso_memory_map_conversation($row);
 }
 
 function meso_memory_get_conversation(string $id): ?array {
     if (!meso_memory_valid_id($id)) return null;
-    $stmt = meso_memory_db()->prepare('SELECT id,title,created_at,updated_at,archived_at FROM conversations WHERE id=:id AND deleted_at IS NULL LIMIT 1');
+    $stmt = meso_memory_db()->prepare('SELECT id,title,created_at,updated_at,archived_at,audience FROM conversations WHERE id=:id AND deleted_at IS NULL LIMIT 1');
     $stmt->execute([':id'=>$id]);
     $row = $stmt->fetch();
     return is_array($row) ? meso_memory_map_conversation($row) : null;
@@ -149,7 +164,7 @@ function meso_memory_get_conversation(string $id): ?array {
 
 function meso_memory_list_conversations(bool $archived = false, int $limit = 50): array {
     $limit = max(1, min($limit, 100));
-    $sql = 'SELECT id,title,created_at,updated_at,archived_at FROM conversations WHERE deleted_at IS NULL AND archived_at IS ' . ($archived ? 'NOT NULL' : 'NULL') . ' ORDER BY updated_at DESC, created_at DESC LIMIT ' . $limit;
+    $sql = 'SELECT id,title,created_at,updated_at,archived_at,audience FROM conversations WHERE deleted_at IS NULL AND archived_at IS ' . ($archived ? 'NOT NULL' : 'NULL') . ' ORDER BY updated_at DESC, created_at DESC LIMIT ' . $limit;
     $rows = meso_memory_db()->query($sql)->fetchAll();
     return array_map('meso_memory_map_conversation', is_array($rows) ? $rows : []);
 }
@@ -437,13 +452,17 @@ function meso_memory_tokens(string $text): array {
 }
 
 function meso_memory_context(string $conversationId, string $message, int $limit = 6): array {
-    if (meso_memory_get_conversation($conversationId) === null) throw new InvalidArgumentException('conversation_not_found');
+    $conversation = meso_memory_get_conversation($conversationId);
+    if ($conversation === null) throw new InvalidArgumentException('conversation_not_found');
+    $audience = $conversation['audience'] ?? null;
     $limit = max(1, min($limit, 8));
     $query = meso_memory_normalize($message);
     $tokens = meso_memory_tokens($message);
     if ($query === '' && !$tokens) return ['instructions'=>'','items_used'=>0,'items'=>[]];
 
-    $stmt = meso_memory_db()->query("SELECT m.seq,m.id,m.conversation_id,m.kind,m.text,m.created_at FROM memory_items m JOIN conversations c ON c.id=m.conversation_id WHERE m.status='verified' AND c.deleted_at IS NULL ORDER BY m.seq DESC LIMIT 500");
+    // Restrict recall to the selected child; legacy unassigned chats remain isolated from child profiles.
+    $stmt = meso_memory_db()->prepare("SELECT m.seq,m.id,m.conversation_id,m.kind,m.text,m.created_at FROM memory_items m JOIN conversations c ON c.id=m.conversation_id WHERE m.status='verified' AND c.deleted_at IS NULL AND " . ($audience === null ? 'c.audience IS NULL' : 'c.audience=:audience') . " ORDER BY m.seq DESC LIMIT 500");
+    $stmt->execute($audience === null ? [] : [':audience'=>$audience]);
     $ranked = [];
     foreach ($stmt->fetchAll() as $row) {
         $normal = meso_memory_normalize((string)$row['text']);

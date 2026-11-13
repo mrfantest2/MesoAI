@@ -22,3 +22,12 @@ html,body{overflow-x:hidden}
   .messageAction{min-height:40px;padding:8px 10px}
 }
 @media(pointer:coarse){.top button,.composer button,.memoryClear,.drawerNew{min-height:44px}}
+
+.audienceSheet{position:fixed;inset:0;background:rgba(3,5,11,.92);z-index:100;display:grid;place-items:center;padding:16px;overflow-y:auto}
+.audienceSheet[hidden]{display:none!important}
+.audienceCard{background:#151925;border:1px solid #6f5a90;border-radius:20px;max-width:440px;width:100%;padding:25px;color:#f6f7fb;display:grid;gap:15px;box-shadow:0 24px 80px rgba(0,0,0,.55)}
+.audienceCard .mark{justify-self:center}
+.audienceCard h2,.audienceCard p{margin:0;text-align:center}
+.audienceCard button{background:#2e2340;color:#fff;border:1px solid #9274b5;border-radius:12px;padding:16px;text-align:center;min-height:54px;cursor:pointer}
+.audienceCard button:hover,.audienceCard button:focus-visible{background:#49375e;outline:2px solid #e1c4ff;outline-offset:2px}
+.audienceCard small{font-size:12px;line-height:1.7;color:#bbc0cb;text-align:center}

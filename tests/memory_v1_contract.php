@@ -39,7 +39,7 @@ putenv('MESO_MEMORY_ROOT=' . $memoryRoot);
 try {
     $db = meso_memory_db();
     expect_true($db instanceof PDO, 'Memory DB did not open');
-    expect_true(meso_memory_schema_version($db) === 1, 'Memory schema version must be 1');
+    expect_true(meso_memory_schema_version($db) === 2, 'Memory schema version must be 2');
     expect_true(str_ends_with(meso_memory_db_path(), 'meso-memory.sqlite'), 'Unexpected DB filename');
 
     $conversation = meso_memory_create_conversation('First private chat');
@@ -82,6 +82,13 @@ try {
     $cross = meso_memory_context($conversation['id'], 'cross-chat-token', 6);
     expect_true($cross['items_used'] >= 1, 'Verified memory from another active conversation was not recalled');
 
+    $majidChat=meso_memory_create_conversation('Captain Majid','majid');
+    $miraChat=meso_memory_create_conversation('Noor Al Ain','mira');
+    $majidUser=meso_memory_add_message($majidChat['id'],'user','Please remember that sibling-isolation-flag means green.');
+    meso_memory_create_item($majidChat['id'],$majidUser['id'],'fact','sibling-isolation-flag means green.','verified','user-explicit-chat');
+    expect_true(meso_memory_context($miraChat['id'],'sibling-isolation-flag',6)['items_used']===0,'Majid memory leaked into Mira chat');
+    expect_true(meso_memory_context($majidChat['id'],'sibling-isolation-flag',6)['items_used']===1,'Majid failed to recall his own memory');
+    expect_true(meso_memory_context($conversation['id'],'sibling-isolation-flag',6)['items_used']===0,'Child memory leaked into legacy chat');
     $messages = meso_memory_list_messages($conversation['id'], 100, null);
     expect_true(count($messages['items']) === 2, 'Transcript persistence failed');
     expect_true($messages['items'][0]['role'] === 'user' && $messages['items'][1]['role'] === 'assistant', 'Transcript ordering failed');
@@ -102,9 +109,22 @@ try {
     meso_memory_delete_transcript($conversation['id']);
     expect_true(count(meso_memory_list_messages($conversation['id'], 100, null)['items']) === 0, 'Transcript delete failed');
 
+    // Upgrade a v1 database while preserving its original records.
+    $legacy = $base . DIRECTORY_SEPARATOR . 'legacy.sqlite';
+    $legacyDb = new PDO('sqlite:' . $legacy);
+    $legacyDb->exec('CREATE TABLE conversations (id TEXT PRIMARY KEY,title TEXT NOT NULL,created_at INTEGER NOT NULL,updated_at INTEGER NOT NULL,archived_at INTEGER NULL,deleted_at INTEGER NULL)');
+    $legacyDb->exec("INSERT INTO conversations VALUES ('legacy', 'Existing', 1, 1, NULL, NULL)");
+    $legacyDb->exec('PRAGMA user_version=1');
+    $legacyDb = null;
+    $upgraded = meso_memory_connect($legacy);
+    expect_true(meso_memory_schema_version($upgraded) === 2, 'v1 database migration failed');
+    $oldRecord = $upgraded->query("SELECT title,audience FROM conversations WHERE id='legacy'")->fetch();
+    expect_true(($oldRecord['title']??'') === 'Existing' && array_key_exists('audience',$oldRecord) && $oldRecord['audience'] === null, 'Migration changed legacy data');
+    $upgraded = null;
+
     $future = $base . DIRECTORY_SEPARATOR . 'future.sqlite';
     $futureDb = new PDO('sqlite:' . $future);
-    $futureDb->exec('PRAGMA user_version=2');
+    $futureDb->exec('PRAGMA user_version=3');
     $futureDb = null;
     $failed = false;
     try {
