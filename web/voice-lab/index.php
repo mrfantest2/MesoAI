@@ -1,7 +1,7 @@
 <?php
 declare(strict_types=1);
 require_once dirname(__DIR__) . DIRECTORY_SEPARATOR . 'includes' . DIRECTORY_SEPARATOR . 'chat_auth.php';
-if(!meso_chat_is_authorized()&&!meso_chat_set_authorized_cookie()){http_response_code(503);header('Content-Type: text/plain; charset=utf-8');echo 'Meso Voice Lab is unavailable.';exit;}
+if(!meso_chat_is_authorized()){http_response_code(403);header('Content-Type: text/plain; charset=utf-8');header('Cache-Control: no-store');echo 'Meso Voice Lab requires an authorized account.';exit;}
 header("Content-Security-Policy: default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; media-src 'self'; connect-src 'self'; img-src 'self' data:; base-uri 'none'; frame-ancestors 'none'; form-action 'none'");
 header('Cache-Control: no-store, private');header('Referrer-Policy: no-referrer');header('X-Content-Type-Options: nosniff');
 ?>

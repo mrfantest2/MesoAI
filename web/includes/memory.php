@@ -162,10 +162,15 @@ function meso_memory_get_conversation(string $id): ?array {
     return is_array($row) ? meso_memory_map_conversation($row) : null;
 }
 
-function meso_memory_list_conversations(bool $archived = false, int $limit = 50): array {
+function meso_memory_list_conversations(bool $archived = false, int $limit = 50, ?string $audience = null): array {
     $limit = max(1, min($limit, 100));
-    $sql = 'SELECT id,title,created_at,updated_at,archived_at,audience FROM conversations WHERE deleted_at IS NULL AND archived_at IS ' . ($archived ? 'NOT NULL' : 'NULL') . ' ORDER BY updated_at DESC, created_at DESC LIMIT ' . $limit;
-    $rows = meso_memory_db()->query($sql)->fetchAll();
+    $sql = 'SELECT id,title,created_at,updated_at,archived_at,audience FROM conversations WHERE deleted_at IS NULL AND archived_at IS ' . ($archived ? 'NOT NULL' : 'NULL');
+    if ($audience !== null && !meso_chat_valid_audience($audience)) throw new InvalidArgumentException('invalid_audience');
+    if ($audience !== null) $sql .= ' AND audience=:audience';
+    $sql .= ' ORDER BY updated_at DESC, created_at DESC LIMIT ' . $limit;
+    $stmt=meso_memory_db()->prepare($sql);
+    $stmt->execute($audience===null?[]:[':audience'=>$audience]);
+    $rows=$stmt->fetchAll();
     return array_map('meso_memory_map_conversation', is_array($rows) ? $rows : []);
 }
 

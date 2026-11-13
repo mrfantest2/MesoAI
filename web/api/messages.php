@@ -23,6 +23,8 @@ meso_chat_require_json_auth();
 
 $conversationId = strtolower(trim((string)($_GET['conversation_id'] ?? '')));
 if (!meso_memory_valid_id($conversationId)) meso_messages_json(400, ['ok'=>false,'error'=>'invalid_conversation_id']);
+try { meso_chat_require_conversation_audience($conversationId); }
+catch (Throwable $e) { meso_messages_json(403,['ok'=>false,'error'=>'conversation_access_denied']); }
 $beforeMessageId = trim((string)($_GET['before_message_id'] ?? ''));
 if ($beforeMessageId !== '') {
     $beforeMessageId = strtolower($beforeMessageId);

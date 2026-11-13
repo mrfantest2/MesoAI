@@ -26,7 +26,7 @@ function meso_memory_api_body(): array {
 function meso_memory_api_error(Throwable $e): never {
     if ($e instanceof InvalidArgumentException) {
         $code = $e->getMessage();
-        $status = in_array($code, ['conversation_not_found','memory_item_not_found','memory_message_not_found'], true) ? 404 : 400;
+        $status = $code==='conversation_access_denied' ? 403 : (in_array($code, ['conversation_not_found','memory_item_not_found','memory_message_not_found'], true) ? 404 : 400);
         meso_memory_api_json($status, ['ok'=>false,'error'=>$code]);
     }
     meso_memory_api_json(503, ['ok'=>false,'error'=>'memory_unavailable']);
@@ -40,8 +40,10 @@ if ($method === 'GET') {
         $conversationId = strtolower($conversationId);
         if (!meso_memory_valid_id($conversationId)) meso_memory_api_json(400, ['ok'=>false,'error'=>'invalid_conversation_id']);
     } else {
-        $conversationId = null;
+        meso_memory_api_json(400, ['ok'=>false,'error'=>'conversation_id_required']);
     }
+    try { meso_chat_require_conversation_audience($conversationId); }
+    catch (Throwable $e) { meso_memory_api_json(403,['ok'=>false,'error'=>'conversation_access_denied']); }
     $status = trim((string)($_GET['status'] ?? ''));
     if ($status === '') $status = null;
     elseif (!in_array($status, ['candidate','verified','rejected'], true)) meso_memory_api_json(400, ['ok'=>false,'error'=>'invalid_memory_status']);
@@ -65,6 +67,7 @@ try {
         if ($action === 'create') {
             $conversationId = strtolower(trim((string)($body['conversation_id'] ?? '')));
             if (!meso_memory_valid_id($conversationId)) meso_memory_api_json(400, ['ok'=>false,'error'=>'invalid_conversation_id']);
+            meso_chat_require_conversation_audience($conversationId);
             $messageId = trim((string)($body['message_id'] ?? ''));
             $messageId = $messageId === '' ? null : strtolower($messageId);
             if ($messageId !== null && !meso_memory_valid_id($messageId)) meso_memory_api_json(400, ['ok'=>false,'error'=>'invalid_message_id']);
@@ -76,6 +79,9 @@ try {
         if (in_array($action, ['verify','reject'], true)) {
             $memoryId = strtolower(trim((string)($body['memory_id'] ?? '')));
             if (!meso_memory_valid_id($memoryId)) meso_memory_api_json(400, ['ok'=>false,'error'=>'invalid_memory_id']);
+            $existing=meso_memory_get_item($memoryId);
+            if (!$existing) meso_memory_api_json(404,['ok'=>false,'error'=>'memory_item_not_found']);
+            meso_chat_require_conversation_audience((string)$existing['conversation_id']);
             $item = meso_memory_set_item_status($memoryId, $action === 'verify' ? 'verified' : 'rejected');
             meso_memory_api_json(200, ['ok'=>true,'memory'=>'meso-memory-v1','item'=>$item]);
         }
@@ -85,12 +91,16 @@ try {
     if ($action === 'item') {
         $memoryId = strtolower(trim((string)($body['memory_id'] ?? '')));
         if (!meso_memory_valid_id($memoryId)) meso_memory_api_json(400, ['ok'=>false,'error'=>'invalid_memory_id']);
+        $existing=meso_memory_get_item($memoryId);
+        if (!$existing) meso_memory_api_json(404,['ok'=>false,'error'=>'memory_item_not_found']);
+        meso_chat_require_conversation_audience((string)$existing['conversation_id']);
         meso_memory_delete_item($memoryId);
         meso_memory_api_json(200, ['ok'=>true,'deleted'=>'item','memory_id'=>$memoryId]);
     }
     if ($action === 'conversation_memory') {
         $conversationId = strtolower(trim((string)($body['conversation_id'] ?? '')));
         if (!meso_memory_valid_id($conversationId)) meso_memory_api_json(400, ['ok'=>false,'error'=>'invalid_conversation_id']);
+        meso_chat_require_conversation_audience($conversationId);
         meso_memory_clear_conversation_memory($conversationId);
         meso_memory_api_json(200, ['ok'=>true,'deleted'=>'conversation_memory','conversation_id'=>$conversationId]);
     }

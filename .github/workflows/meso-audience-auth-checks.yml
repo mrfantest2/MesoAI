@@ -1,0 +1,59 @@
+name: MesoAI Audience Authentication Regression
+
+on:
+  push:
+    branches: [feature/meso-audience-auth-hardening-20261113]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  audience-auth:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: PHP SQLite support
+        run: |
+          if ! php -m | grep -qi '^pdo_sqlite$'; then
+            sudo apt-get update -qq
+            sudo apt-get install -y -qq php-sqlite3
+          fi
+          php -m | grep -qi '^pdo_sqlite$'
+      - name: Syntax gates
+        run: |
+          for file in web/includes/chat_auth.php web/includes/chat_runtime.php web/includes/memory.php web/api/conversations.php web/api/messages.php web/api/memory.php web/api/chat.php web/api/chat-stream.php web/chat/index.php web/voice-lab/index.php tests/audience_auth_contract.php; do php -l "$file"; done
+          node --check web/chat/chat.js
+          node --check web/chat/audience.js
+          node --check web/chat/reply-audio.js
+      - name: Synthetic authorization and memory tests
+        run: |
+          php tests/audience_auth_contract.php
+          php tests/memory_v1_contract.php
+          php tests/chat_v2_regenerate_contract.php
+      - name: Isolated HTTP authorization QA
+        run: python3 tests/http_audience_qa.py
+      - name: No anonymous auto-authentication
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          auth=Path('web/includes/chat_auth.php').read_text(encoding='utf-8')
+          chat=Path('web/chat/index.php').read_text(encoding='utf-8')
+          voice=Path('web/voice-lab/index.php').read_text(encoding='utf-8')
+          conversations=Path('web/api/conversations.php').read_text(encoding='utf-8')
+          messages=Path('web/api/messages.php').read_text(encoding='utf-8')
+          memory=Path('web/api/memory.php').read_text(encoding='utf-8')
+          stream=Path('web/includes/chat_runtime.php').read_text(encoding='utf-8')
+          assert 'meso_chat_direct_page_request()' not in auth
+          assert 'meso_chat_set_authorized_cookie()' not in voice
+          assert 'meso_chat_verify_invite' in chat
+          assert 'meso_chat_current_audience' in auth
+          assert 'meso_chat_require_conversation_audience' in conversations+messages+memory+stream
+          assert 'meso_chat_session_can_access' in conversations
+          assert 'meso_chat_account_digest' in auth
+          assert 'meso_chat_cookie_value' in auth
+          assert 'Private invitation code' in chat
+          assert 'AI-generated voice' in Path('web/chat/reply-audio.js').read_text(encoding='utf-8')
+          print('MESO_AUDIENCE_STATIC_SECURITY=PASS')
+          PY

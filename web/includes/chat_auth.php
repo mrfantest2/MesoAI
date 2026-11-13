@@ -5,84 +5,109 @@ const MESO_CHAT_COOKIE = 'meso_chat_auth';
 const MESO_CHAT_COOKIE_DAYS = 30;
 
 function meso_private_root(): string {
-    return 'C:\\MesoAI\\private';
+    $test = PHP_SAPI === 'cli' ? trim((string)(getenv('MESO_TEST_PRIVATE_ROOT') ?: '')) : '';
+    return $test !== '' ? $test : 'C:\\MesoAI\\private';
 }
 
 function meso_chat_secret_path(): string {
-    return meso_private_root() . '\\chat-cookie-secret.txt';
+    return meso_private_root() . DIRECTORY_SEPARATOR . 'chat-cookie-secret.txt';
 }
 
-function meso_chat_invite_path(): string {
-    return meso_private_root() . '\\chat-invite-token.txt';
+// The server operator provisions independent, >=32-character random invitation codes.
+// Only SHA-256 digests live in the private (non-web) configuration file.
+function meso_chat_account_hash_path(): string {
+    return meso_private_root() . DIRECTORY_SEPARATOR . 'chat-accounts.json';
 }
-
 function meso_chat_secret(): ?string {
     $path = meso_chat_secret_path();
     if (!is_file($path) || !is_readable($path)) return null;
     $value = trim((string)file_get_contents($path));
-    return $value !== '' ? $value : null;
+    return strlen($value) >= 32 ? $value : null;
 }
-
 function meso_b64url(string $raw): string {
     return rtrim(strtr(base64_encode($raw), '+/', '-_'), '=');
 }
-
-function meso_chat_cookie_value(int $expires): ?string {
-    $secret = meso_chat_secret();
-    if ($secret === null) return null;
-    $payload = 'meso-chat|' . $expires;
-    $sig = meso_b64url(hash_hmac('sha256', $payload, $secret, true));
-    return $expires . '.' . $sig;
+function meso_chat_valid_audience(string $audience): bool {
+    return in_array($audience, ['majid','mira'], true);
 }
-
+function meso_chat_account_digest(string $audience): ?string {
+    if (!meso_chat_valid_audience($audience)) return null;
+    $path=meso_chat_account_hash_path();
+    if (!is_file($path) || !is_readable($path)) return null;
+    $config=json_decode((string)file_get_contents($path),true);
+    $digest=is_array($config)?($config['accounts'][$audience]??null):null;
+    return is_string($digest) && preg_match('/^[a-f0-9]{64}$/D',$digest)===1 ? $digest : null;
+}
+function meso_chat_verify_invite(string $audience, string $token): bool {
+    if (strlen($token)<32 || strlen($token)>256) return false;
+    $expected=meso_chat_account_digest($audience);
+    return $expected!==null && hash_equals($expected,hash('sha256',$token));
+}
+function meso_chat_invite_rate_ok(string $ip): bool {
+    $dir = meso_private_root() . DIRECTORY_SEPARATOR . 'chat-auth-rate';
+    if (!is_dir($dir) && !@mkdir($dir,0700,true) && !is_dir($dir)) return false;
+    $file = $dir . DIRECTORY_SEPARATOR . hash('sha256',$ip) . '.json';
+    $fh = @fopen($file,'c+');
+    if (!$fh) return false;
+    try {
+        if (!flock($fh,LOCK_EX)) return false;
+        $events = json_decode((string)stream_get_contents($fh),true);
+        if (!is_array($events)) $events=[];
+        $now=time();
+        $events=array_values(array_filter($events,static fn($x)=>is_int($x)&&$x>$now-600));
+        if (count($events)>=8) return false;
+        $events[]=$now;
+        rewind($fh);ftruncate($fh,0);fwrite($fh,(string)json_encode($events));fflush($fh);
+        return true;
+    } finally { flock($fh,LOCK_UN);fclose($fh); }
+}
+function meso_chat_cookie_value(string $audience, int $expires): ?string {
+    if (!meso_chat_valid_audience($audience)) return null;
+    $secret=meso_chat_secret();
+    $accountDigest=meso_chat_account_digest($audience);
+    if ($secret===null || $accountDigest===null) return null;
+    // Changing or removing an account's invitation digest invalidates existing sessions.
+    $payload='meso-v2|'.$audience.'|'.$expires.'|'.$accountDigest;
+    return 'v2.'.$audience.'.'.$expires.'.'.meso_b64url(hash_hmac('sha256',$payload,$secret,true));
+}
+function meso_chat_current_audience(): ?string {
+    $raw=(string)($_COOKIE[MESO_CHAT_COOKIE] ?? '');
+    if (!preg_match('/^v2\.(majid|mira)\.([0-9]{10,12})\.([A-Za-z0-9_-]{43})$/D',$raw,$m)) return null;
+    $exp=(int)$m[2];
+    if ($exp<time() || $exp>time()+MESO_CHAT_COOKIE_DAYS*86400+3600) return null;
+    $expected=meso_chat_cookie_value($m[1],$exp);
+    return $expected!==null && hash_equals($expected,$raw) ? $m[1] : null;
+}
+function meso_chat_session_can_access(?string $conversationAudience): bool {
+    $actor=meso_chat_current_audience();
+    return $actor!==null && $conversationAudience!==null && $actor===$conversationAudience;
+}
+function meso_chat_require_conversation_audience(string $conversationId): void {
+    if (!function_exists('meso_memory_get_conversation')) throw new RuntimeException('memory_unavailable');
+    $conversation=meso_memory_get_conversation($conversationId);
+    if (!is_array($conversation) || !meso_chat_session_can_access($conversation['audience']??null)) {
+        throw new InvalidArgumentException('conversation_access_denied');
+    }
+}
 function meso_request_is_https(): bool {
     $https = strtolower((string)($_SERVER['HTTPS'] ?? ''));
     $forwarded = strtolower((string)($_SERVER['HTTP_X_FORWARDED_PROTO'] ?? ''));
     return ($https !== '' && $https !== 'off') || $forwarded === 'https' || (string)($_SERVER['SERVER_PORT'] ?? '') === '443';
 }
 
-function meso_chat_set_authorized_cookie(): bool {
-    $expires = time() + MESO_CHAT_COOKIE_DAYS * 86400;
-    $value = meso_chat_cookie_value($expires);
-    if ($value === null) return false;
-    return setcookie(MESO_CHAT_COOKIE, $value, [
-        'expires' => $expires,
-        'path' => '/meso/',
-        'secure' => meso_request_is_https(),
-        'httponly' => true,
-        'samesite' => 'Strict',
+function meso_chat_set_authorized_cookie(string $audience): bool {
+    $expires=time()+MESO_CHAT_COOKIE_DAYS*86400;
+    $value=meso_chat_cookie_value($audience,$expires);
+    if ($value===null) return false;
+    return setcookie(MESO_CHAT_COOKIE,$value,[
+        'expires'=>$expires,'path'=>'/meso/','secure'=>meso_request_is_https(),
+        'httponly'=>true,'samesite'=>'Strict',
     ]);
 }
-
-function meso_chat_direct_page_request(): bool {
-    if (strtoupper((string)($_SERVER['REQUEST_METHOD'] ?? 'GET')) !== 'GET') return false;
-    $path = (string)(parse_url((string)($_SERVER['REQUEST_URI'] ?? ''), PHP_URL_PATH) ?? '');
-    return rtrim($path, '/') === '/meso/chat';
-}
-
 function meso_chat_is_authorized(): bool {
-    $raw = (string)($_COOKIE[MESO_CHAT_COOKIE] ?? '');
-    if ($raw !== '' && str_contains($raw, '.')) {
-        [$expRaw, $sig] = explode('.', $raw, 2);
-        if (ctype_digit($expRaw)) {
-            $exp = (int)$expRaw;
-            $now = time();
-            if ($exp >= $now && $exp <= $now + (MESO_CHAT_COOKIE_DAYS * 86400) + 3600) {
-                $expected = meso_chat_cookie_value($exp);
-                if ($expected !== null) {
-                    [, $expectedSig] = explode('.', $expected, 2);
-                    if (hash_equals($expectedSig, $sig)) return true;
-                }
-            }
-        }
-    }
-
-    // Direct browser access no longer requires a one-time invite. The page
-    // issues the existing signed cookie; JSON APIs remain cookie-protected.
-    if (meso_chat_direct_page_request()) return meso_chat_set_authorized_cookie();
-    return false;
+    // Fail closed. In particular, GET /meso/chat/ NEVER auto-issues a cookie.
+    return meso_chat_current_audience()!==null;
 }
-
 function meso_chat_clear_cookie(): void {
     setcookie(MESO_CHAT_COOKIE, '', [
         'expires' => time() - 3600,

@@ -26,7 +26,7 @@ function meso_conversations_body(): array {
 function meso_conversations_error(Throwable $e): never {
     $code = $e->getMessage();
     if ($e instanceof InvalidArgumentException) {
-        $status = $code === 'conversation_not_found' ? 404 : ($code === 'conversation_archived' ? 409 : 400);
+        $status = $code === 'conversation_access_denied' ? 403 : ($code === 'conversation_not_found' ? 404 : ($code === 'conversation_archived' ? 409 : 400));
         meso_conversations_json($status, ['ok'=>false,'error'=>$code]);
     }
     meso_conversations_json(503, ['ok'=>false,'error'=>'memory_unavailable']);
@@ -43,7 +43,7 @@ if ($method === 'GET') {
         meso_conversations_json(200, [
             'ok'=>true,
             'archived'=>$archivedRaw === '1',
-            'items'=>meso_memory_list_conversations($archivedRaw === '1', (int)$limit),
+            'items'=>meso_memory_list_conversations($archivedRaw === '1', (int)$limit, meso_chat_current_audience()),
             'memory'=>'meso-memory-v1',
         ]);
     } catch (Throwable $e) { meso_conversations_error($e); }
@@ -60,12 +60,13 @@ try {
     if ($method === 'POST') {
         $title = is_string($body['title'] ?? null) ? (string)$body['title'] : 'New conversation';
         $audience = $body['audience'] ?? null;
-        if (!is_string($audience) || !in_array($audience,['majid','mira'],true)) meso_conversations_json(400,['ok'=>false,'error'=>'identity_required']);
+        if (!is_string($audience) || !meso_chat_session_can_access($audience)) meso_conversations_json(403,['ok'=>false,'error'=>'conversation_access_denied']);
         meso_conversations_json(201, ['ok'=>true,'conversation'=>meso_memory_create_conversation($title,$audience),'memory'=>'meso-memory-v1']);
     }
 
     $conversationId = strtolower(trim((string)($body['conversation_id'] ?? '')));
     if (!meso_memory_valid_id($conversationId)) meso_conversations_json(400, ['ok'=>false,'error'=>'invalid_conversation_id']);
+    meso_chat_require_conversation_audience($conversationId);
 
     if ($method === 'PATCH') {
         $title = array_key_exists('title', $body) && is_string($body['title']) ? (string)$body['title'] : null;
