@@ -96,7 +96,7 @@ button,textarea,a{font:inherit}
     <div class="status"><span>Memory</span><span class="pill good">MESO v1</span></div>
     <div class="status"><span>Persona</span><span class="pill good">MESO v1</span></div>
     <div class="status"><span>Speech to text</span><span class="pill good">LOCAL</span></div>
-    <div class="status"><span>Cloned voice</span><span class="pill good">MESO VOICE</span></div>
+    <div class="status"><span>Voice synthesis</span><span class="pill warn">TESTING</span></div>
     <div class="status"><span>Chat</span><span class="pill good">PRIVATE</span></div>
   </div>
   <div class="panel conversationPanel">
@@ -136,6 +136,16 @@ button,textarea,a{font:inherit}
   </section>
 </div>
 
+<div id="audienceSheet" class="audienceSheet" hidden aria-hidden="true">
+  <section class="audienceCard" role="dialog" aria-modal="true" aria-labelledby="audienceTitle" lang="ar" dir="rtl">
+    <div class="mark" aria-hidden="true">M</div>
+    <h2 id="audienceTitle">مين عم يحكي اليوم؟</h2>
+    <p>اختار اسمك قبل ما تبدأ كل محادثة جديدة.</p>
+    <button data-meso-audience="majid" type="button">أنا ماجد — كابتن ماجد</button>
+    <button data-meso-audience="mira" type="button">أنا ميرا — نور العين</button>
+    <small>هذا مساعد تذكاري بالذكاء الاصطناعي مستوحى من ذكريات ميسون، وليس ميسون نفسها. الردود والصوت المولّد ليست تسجيلات حقيقية.</small>
+  </section>
+</div>
 <div id="memorySheet" class="installSheet" hidden aria-hidden="true">
   <section class="installCard" role="dialog" aria-modal="true" aria-labelledby="memorySheetTitle">
     <button id="memoryClose" class="installClose" type="button" aria-label="Close memory inspector">×</button>
@@ -148,6 +158,7 @@ button,textarea,a{font:inherit}
 
 <div id="installSheet" class="installSheet" hidden aria-hidden="true"><section class="installCard" role="dialog" aria-modal="true" aria-labelledby="installSheetTitle"><button id="installSheetClose" class="installClose" type="button" aria-label="Close install instructions">×</button><strong id="installSheetTitle">Install MesoAI</strong><p id="installSheetText">Install MesoAI on your home screen.</p></section></div>
 <script src="/meso/chat/render.js" defer></script>
+<script src="/meso/chat/audience.js" defer></script>
 <script src="/meso/chat/chat.js" defer></script>
 <script src="/meso/chat/conversations.js" defer></script>
 <script src="/meso/chat/memory.js" defer></script>

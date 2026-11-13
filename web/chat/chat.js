@@ -11,12 +11,12 @@
   }
 
   let recorder=null,stream=null,chunks=[],autoStopTimer=null,recording=false,transcribing=false;
-  let activePersona='meso-v1',activeGrounding='style-only',activeEvidenceCount=0,activeConversationId='',bootstrapped=false;
+  let activePersona='meso-v1',activeGrounding='style-only',activeEvidenceCount=0,activeConversationId='',activeAudience='',bootstrapped=false;
   let generationController=null,generationStopped=false;
 
   const validId=(value)=>/^[a-f0-9]{64}$/.test(String(value||''));
   const stateJsonHeaders={'Content-Type':'application/json','Accept':'application/json'};
-  const baseStatus=()=>`Private · Persona ${activePersona} · Historical evidence ${activeEvidenceCount} · Conversation memory MESO v1 · STT local · Voice Meso`;
+  const baseStatus=()=> 'Private · '+(activeAudience==='majid'?'كابتن ماجد':activeAudience==='mira'?'نور العين':'Choose identity')+' · Persona '+activePersona+' · Historical evidence '+activeEvidenceCount+' · Conversation memory MESO v1 · Voice AI (testing)';
 
   function ensureStopButton(){
     let button=$('stopGeneration');
@@ -107,18 +107,28 @@
   async function loadPersonaState(){try{const response=await fetch('/meso/api/persona-status.php',{credentials:'same-origin',cache:'no-store',headers:{Accept:'application/json'}});const body=await readJson(response);if(response.ok&&body.ok)applyPersonaState(body);}catch(error){if(error?.message!=='chat_auth_required')status.textContent='Private · Persona status unavailable';}}
 
   async function createConversation(title='New conversation'){
-    const response=await fetch('/meso/api/conversations.php',{method:'POST',credentials:'same-origin',cache:'no-store',headers:stateJsonHeaders,body:JSON.stringify({title})});const body=await readJson(response);const id=String(body?.conversation?.id||'');if(!response.ok||!body.ok||!validId(id))throw new Error(body.message||body.error||`HTTP ${response.status}`);activeConversationId=id;storeConversationId(id);emitConversationChanged();return id;
+    if(!['majid','mira'].includes(activeAudience))throw new Error('identity_required');
+    const response=await fetch('/meso/api/conversations.php',{method:'POST',credentials:'same-origin',cache:'no-store',headers:stateJsonHeaders,body:JSON.stringify({title,audience:activeAudience})});const body=await readJson(response);const id=String(body?.conversation?.id||'');if(!response.ok||!body.ok||!validId(id))throw new Error(body.message||body.error||`HTTP ${response.status}`);activeConversationId=id;storeConversationId(id);emitConversationChanged();return id;
   }
   async function loadMessages(conversationId){
     if(!validId(conversationId))throw new Error('invalid_conversation_id');
     const response=await fetch(`/meso/api/messages.php?conversation_id=${encodeURIComponent(conversationId)}&limit=100`,{credentials:'same-origin',cache:'no-store',headers:{Accept:'application/json'}});const body=await readJson(response);if(!response.ok||!body.ok)throw new Error(body.error||`HTTP ${response.status}`);
+    const savedAudience=String(body?.conversation?.audience||'');
+    if(!['majid','mira'].includes(activeAudience)||savedAudience!==activeAudience)throw new Error('identity_mismatch');
     messages.replaceChildren();const items=Array.isArray(body.items)?body.items:[];if(items.length===0){showEmpty('Private conversation ready','Conversation memory v1 is ON. Historical Persona evidence remains a separate store.');return;}
     let pendingUserMessageId='';
     for(const item of items){const role=String(item?.role||'');if(role!=='user'&&role!=='assistant')continue;const itemId=String(item?.id||'');if(role==='user'){pendingUserMessageId=validId(itemId)?itemId:'';addMessage(role,String(item?.content||''),messageMeta(item));}else{addMessage(role,String(item?.content||''),messageMeta(item),{userMessageId:pendingUserMessageId});pendingUserMessageId='';}}
   }
-  async function activateConversation(conversationId){const id=String(conversationId||'');if(!validId(id))throw new Error('invalid_conversation_id');if(recording||transcribing||generationController)throw new Error('conversation_busy');setBusy(true,'Loading private conversation…');try{await loadMessages(id);activeConversationId=id;storeConversationId(id);emitConversationChanged();return id;}finally{setBusy(false);autoHeight();input.focus();}}
+  async function activateConversation(conversationId){const id=String(conversationId||'');if(!validId(id))throw new Error('invalid_conversation_id');if(recording||transcribing||generationController)throw new Error('conversation_busy');setBusy(true,'Loading private conversation…');try{
+    try{await loadMessages(id);}catch(error){
+      if(error.message!=='identity_mismatch')throw error;
+      activeAudience=await window.mesoPickAudience();
+      await loadMessages(id);
+    }
+    activeConversationId=id;storeConversationId(id);emitConversationChanged();return id;
+  }finally{setBusy(false);autoHeight();input.focus();}}
   async function ensureConversation(){const stored=getStoredConversationId();if(stored){try{await loadMessages(stored);activeConversationId=stored;emitConversationChanged();return stored;}catch(error){if(error?.message==='chat_auth_required')throw error;storeConversationId('');}}const id=await createConversation();await loadMessages(id);return id;}
-  async function newChat(){if(recording||transcribing||generationController||send.disabled)return '';setBusy(true,'Creating private conversation…');try{const id=await createConversation();await loadMessages(id);showEmpty('New conversation','A new private conversation is ready. Previous conversations remain stored privately on MASTER-PC.');return id;}catch(error){addMessage('assistant',`Could not create conversation: ${error.message}`,'system',{actions:false});return '';}finally{setBusy(false);autoHeight();input.focus();}}
+  async function newChat(){if(recording||transcribing||generationController||send.disabled)return '';const selected=await window.mesoPickAudience();activeAudience=selected;setBusy(true,'Creating private conversation…');try{const id=await createConversation();await loadMessages(id);showEmpty('New conversation','A new private conversation is ready. Previous conversations remain stored privately on MASTER-PC.');return id;}catch(error){addMessage('assistant',`Could not create conversation: ${error.message}`,'system',{actions:false});return '';}finally{setBusy(false);autoHeight();input.focus();}}
 
   function responseMeta(body){const persona=`persona · ${String(body?.persona||'off')}`;const grounding=String(body?.persona_grounding||'off');const groundingPart=grounding&&grounding!=='off'?` · ${grounding}`:'';const evidence=Number(body?.persona_evidence||0)>0?` · evidence ${Number(body.persona_evidence)}`:'';const remembered=Number(body?.memory_items_used||0)>0?` · memory ${Number(body.memory_items_used)}`:'';return `${body?.provider||''}${body?.model?` · ${body.model}`:''} · ${persona}${groundingPart}${evidence}${remembered}`;}
 
@@ -186,7 +196,7 @@
   async function startRecording(){if(!mic||recording||transcribing||generationController||send.disabled)return;if(!navigator.mediaDevices?.getUserMedia||!window.MediaRecorder){addMessage('assistant','This browser does not provide microphone recording support.','local STT',{actions:false});return;}try{stream=await navigator.mediaDevices.getUserMedia({audio:true});const mime=bestRecorderMime();recorder=mime?new MediaRecorder(stream,{mimeType:mime}):new MediaRecorder(stream);chunks=[];recorder.addEventListener('dataavailable',e=>{if(e.data&&e.data.size>0)chunks.push(e.data);});recorder.addEventListener('stop',async()=>{const type=recorder?.mimeType||mime||'audio/webm';const blob=new Blob(chunks,{type});chunks=[];recorder=null;resetRecorderUi();if(!blob.size){addMessage('assistant','No microphone audio was captured.','local STT',{actions:false});setBusy(false);return;}await transcribeBlob(blob);},{once:true});recorder.start(250);recording=true;mic.classList.add('recording');mic.setAttribute('aria-pressed','true');mic.textContent='■';send.disabled=true;input.disabled=true;status.textContent='Recording locally… tap ■ to stop';autoStopTimer=setTimeout(()=>stopRecording(),60000);}catch(error){resetRecorderUi();setBusy(false);addMessage('assistant',`Microphone unavailable: ${error.message}`,'local STT',{actions:false});}}
   function stopRecording(){if(!recording||!recorder)return;try{if(recorder.state!=='inactive')recorder.stop();}catch(error){resetRecorderUi();setBusy(false);addMessage('assistant',`Could not stop microphone recording: ${error.message}`,'local STT',{actions:false});}}
 
-  async function bootstrapChat(){setBusy(true,'Loading private conversation…');try{await loadPersonaState();await ensureConversation();bootstrapped=true;setBusy(false);autoHeight();input.focus();}catch(error){if(error?.message!=='chat_auth_required'){showEmpty('Conversation unavailable','MesoAI could not initialize private Conversation memory v1.');status.textContent=`Memory unavailable · ${error.message}`;}}}
+  async function bootstrapChat(){setBusy(true,'Loading private conversation…');try{await loadPersonaState();activeAudience=await window.mesoPickAudience();await ensureConversation();bootstrapped=true;setBusy(false);autoHeight();input.focus();}catch(error){if(error?.message!=='chat_auth_required'){showEmpty('Conversation unavailable','MesoAI could not initialize private Conversation memory v1.');status.textContent=`Memory unavailable · ${error.message}`;}}}
 
   window.mesoActiveConversationId=()=>activeConversationId;
   window.mesoChatBridge={activateConversation,newConversation:newChat,reloadActive:()=>validId(activeConversationId)?activateConversation(activeConversationId):Promise.reject(new Error('invalid_conversation_id'))};

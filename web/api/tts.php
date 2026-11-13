@@ -65,9 +65,19 @@ if (!meso_tts_rate_limit()) { meso_tts_error(429, 'tts_rate_limited', 'Meso voic
 
 $language = preg_match('/[\x{0600}-\x{06FF}\x{0750}-\x{077F}\x{08A0}-\x{08FF}]/u', $text) === 1 ? 'ar' : 'en';
 $privateRoot = meso_private_root() . '\\xtts-live';
-$python = 'C:\\ProgramData\\KhalilDigitalTwin\\meso\\xtts-venv\\Scripts\\python.exe';
-$helper = 'C:\\ProgramData\\KhalilDigitalTwin\\meso\\xtts-bridge\\meso_xtts_client.py';
-if (!is_file($python) || !is_file($helper)) { meso_tts_error(503, 'xtts_unavailable', 'Meso voice is offline.'); exit; }
+$runtimes = [
+    ['C:\\MesoAI\\runtime\\xtts-venv\\Scripts\\python.exe', 'C:\\MesoAI\\runtime\\xtts-bridge\\meso_xtts_client.py'],
+    ['C:\\ProgramData\\KhalilDigitalTwin\\meso\\xtts-venv\\Scripts\\python.exe', 'C:\\ProgramData\\KhalilDigitalTwin\\meso\\xtts-bridge\\meso_xtts_client.py'],
+];
+$python = ''; $helper = '';
+foreach ($runtimes as $runtime) {
+    if (is_file($runtime[0]) && is_file($runtime[1])) { [$python,$helper]=$runtime; break; }
+}
+if ($python === '' || $helper === '') { meso_tts_error(503, 'xtts_unavailable', 'Meso voice is offline.'); exit; }
+// The helper requires an existing localhost XTTS service; do not start heavy GPU workloads from an HTTP request.
+$probe = @fsockopen('127.0.0.1', 8020, $errorNo, $errorString, 0.3);
+if (!$probe) { meso_tts_error(503, 'xtts_unavailable', 'Voice synthesis is offline.'); exit; }
+fclose($probe);
 if (!is_dir($privateRoot) && !@mkdir($privateRoot, 0700, true) && !is_dir($privateRoot)) { meso_tts_error(503, 'xtts_unavailable'); exit; }
 $lock = @fopen($privateRoot . '\\tts.lock', 'c+');
 if (!$lock || !flock($lock, LOCK_EX | LOCK_NB)) {

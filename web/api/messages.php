@@ -38,6 +38,7 @@ try {
     meso_messages_json(200, [
         'ok'=>true,
         'conversation_id'=>$conversationId,
+        'conversation'=>meso_memory_get_conversation($conversationId),
         'items'=>$page['items'],
         'next_before_message_id'=>$page['next_before_message_id'],
         'memory'=>'meso-memory-v1',

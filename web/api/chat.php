@@ -12,7 +12,7 @@ function meso_chat_json_fail(Throwable $e): never {
     $status=meso_chat_error_status($e);
     $code=$e->getMessage();
     $safe=[
-        'invalid_conversation_id','conversation_not_found','conversation_archived','invalid_message',
+        'invalid_conversation_id','conversation_not_found','conversation_archived','identity_required','invalid_message',
         'invalid_regenerate_message_id','regenerate_message_not_found','regenerate_message_not_user',
         'rate_limited','provider_not_configured','invalid_local_provider','curl_unavailable',
         'rate_limit_unavailable','memory_unavailable','provider_connection_failed','provider_error','empty_provider_response'
