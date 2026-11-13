@@ -10,7 +10,7 @@ function meso_private_root(): string {
 }
 
 function meso_chat_secret_path(): string {
-    return meso_private_root() . '\\chat-cookie-secret.txt';
+    return meso_private_root() . DIRECTORY_SEPARATOR . 'chat-cookie-secret.txt';
 }
 
 // The server operator provisions independent, >=32-character random invitation codes.
