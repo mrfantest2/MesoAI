@@ -1,7 +1,7 @@
 <?php
 declare(strict_types=1);
 require_once dirname(__DIR__) . DIRECTORY_SEPARATOR . 'includes' . DIRECTORY_SEPARATOR . 'chat_auth.php';
-meso_chat_require_auth();
+meso_chat_require_json_auth();
 header('Cache-Control: no-store, private');
 header('Pragma: no-cache');
 header('X-Content-Type-Options: nosniff');
