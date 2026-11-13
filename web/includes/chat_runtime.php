@@ -55,6 +55,7 @@ function meso_chat_prepare_request(array $body): array {
     if(!meso_memory_valid_id($conversationId)) throw new InvalidArgumentException('invalid_conversation_id');
     $conversation=meso_memory_get_conversation($conversationId);
     if($conversation===null) throw new InvalidArgumentException('conversation_not_found');
+    meso_chat_require_conversation_audience($conversationId);
     if(($conversation['archived']??false)===true) throw new InvalidArgumentException('conversation_archived');
     if(!in_array(($conversation['audience']??null),['majid','mira'],true)) throw new InvalidArgumentException('identity_required');
 
@@ -86,7 +87,7 @@ function meso_chat_prepare_request(array $body): array {
 function meso_chat_context_for(string $conversationId,string $message): array {
     $conversation=meso_memory_get_conversation($conversationId);
     $audience=(string)($conversation['audience']??'');
-    if(!in_array($audience,['majid','mira'],true)) throw new InvalidArgumentException('identity_required');
+    if(!meso_chat_session_can_access($audience)) throw new InvalidArgumentException('conversation_access_denied');
     $memoryContext=meso_memory_context($conversationId,$message,6);
     $persona=meso_persona_status();
     $personaContext=meso_persona_context($message);
@@ -214,6 +215,7 @@ function meso_chat_stream_limit(): int {
 
 function meso_chat_error_status(Throwable $e): int {
     $code=$e->getMessage();
+    if($code==='conversation_access_denied') return 403;
     if($code==='conversation_not_found'||$code==='regenerate_message_not_found') return 404;
     if($code==='conversation_archived') return 409;
     if($code==='rate_limited') return 429;
