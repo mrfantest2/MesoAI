@@ -53,7 +53,7 @@ try {
 try {
     $cfg=meso_chat_provider_config();
     $provider=(string)$cfg['provider'];
-    $model=(string)$cfg['model'];
+    $model=meso_chat_requested_model($body,$provider,(string)$cfg['model']);
     $reply='';
     $responseModel=$model;
 

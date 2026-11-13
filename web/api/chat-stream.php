@@ -46,8 +46,9 @@ if(!is_array($body)) meso_chat_stream_preflight_fail(new InvalidArgumentExceptio
 try {
     $prepared=meso_chat_prepare_request($body);
     $context=meso_chat_context_for((string)$prepared['conversation_id'],(string)$prepared['message']);
-    $userMessage=meso_chat_persist_user_turn($prepared);
     $cfg=meso_chat_provider_config();
+    $requestedModel=meso_chat_requested_model($body,(string)$cfg['provider'],(string)$cfg['model']);
+    $userMessage=meso_chat_persist_user_turn($prepared);
 } catch(InvalidArgumentException $e) {
     meso_chat_stream_preflight_fail($e);
 } catch(Throwable $e) {
@@ -65,7 +66,7 @@ header('Connection: keep-alive');
 while(ob_get_level()>0) @ob_end_flush();
 
 $provider=(string)$cfg['provider'];
-$model=(string)$cfg['model'];
+$model=(string)$requestedModel;
 $resultBase=meso_chat_result_base($prepared,$context,$userMessage);
 meso_chat_sse_event('meta',array_merge($resultBase,['provider'=>$provider,'model'=>$model]));
 
