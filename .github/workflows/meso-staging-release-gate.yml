@@ -1,0 +1,70 @@
+name: MesoAI Staging Release Gate
+
+on:
+  push:
+    branches: [ci/meso-github-hosted-qa-20261114]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: meso-staging-gate-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  staging-gate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Enforce isolated staging release boundary
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REF_NAME" = "ci/meso-github-hosted-qa-20261114"
+          test -f tests/http_audience_qa.py
+          test -f web/includes/chat_auth.php
+          test -f web/chat/index.php
+          python3 - <<'PY'
+          from pathlib import Path
+          import ast
+          source=Path('tests/http_audience_qa.py').read_text(encoding='utf-8')
+          ast.parse(source)
+          assert 'tempfile.mkdtemp' in source
+          assert '127.0.0.1' in source
+          assert 'shutil.rmtree(root' in source
+          assert 'secrets.token_urlsafe' in source
+          assert 'meso_chat_auth' in source
+          assert 'Anonymous chat denied; no auto cookie' in source
+          assert 'Cross-user messages denied' in source
+          assert 'Cross-user memory denied' in source
+          assert 'No unintended model call' in source
+          print('STAGING_BOUNDARY=PASS')
+          PY
+      - name: PHP SQLite
+        shell: bash
+        run: |
+          set -euo pipefail
+          if ! php -m | grep -qi '^pdo_sqlite$'; then
+            sudo apt-get update -qq
+            sudo apt-get install -y -qq php-sqlite3
+          fi
+          php -m | grep -qi '^pdo_sqlite$'
+      - name: Execute disposable staging HTTP test
+        run: python3 tests/http_audience_qa.py
+      - name: Stage manifest (no credentials or family data)
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p staging-evidence
+          printf 'commit=%s\nbranch=%s\nmode=disposable-loopback\nproduction=HOLD\nexternal_deployment=NOT_PERFORMED\n' "$GITHUB_SHA" "$GITHUB_REF_NAME" > staging-evidence/manifest.txt
+          echo 'STAGING_QA_PASS=true'
+      - name: Upload non-sensitive staging evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: meso-staging-qa-manifest
+          path: staging-evidence/manifest.txt
+          retention-days: 7
