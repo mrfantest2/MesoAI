@@ -1,0 +1,109 @@
+name: MesoAI Isolated GitHub Hosted QA
+
+on:
+  push:
+    branches:
+      - ci/meso-github-hosted-qa-20261114
+
+permissions:
+  contents: read
+
+concurrency:
+  group: mesoai-synthetic-qa-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  synthetic-audience-regression:
+    name: Synthetic audience authorization (no deploy)
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    env:
+      CI: "true"
+    steps:
+      - name: Checkout the isolated QA branch
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Verify runner boundary
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REF_NAME" = "ci/meso-github-hosted-qa-20261114"
+          test "$GITHUB_EVENT_NAME" = "push"
+          echo "MESO_QA_SYNTHETIC_ONLY=true"
+          echo "MESO_PRODUCTION_DEPLOY=false"
+          echo "MESO_CODEX_USED=false"
+          php --version | head -n 1
+          python3 --version
+          node --version
+
+      - name: Ensure PHP SQLite support
+        shell: bash
+        run: |
+          set -euo pipefail
+          if ! php -m | grep -qi '^pdo_sqlite$'; then
+            sudo apt-get update -qq
+            sudo apt-get install -y -qq php-sqlite3
+          fi
+          php -m | grep -qi '^pdo_sqlite$'
+
+      - name: PHP and JavaScript syntax checks
+        shell: bash
+        run: |
+          set -euo pipefail
+          for file in \
+            web/includes/chat_auth.php \
+            web/includes/chat_runtime.php \
+            web/includes/memory.php \
+            web/api/conversations.php \
+            web/api/messages.php \
+            web/api/memory.php \
+            web/api/chat.php \
+            web/api/chat-stream.php \
+            web/chat/index.php \
+            web/voice-lab/index.php \
+            tests/audience_auth_contract.php; do
+            php -l "$file"
+          done
+          node --check web/chat/chat.js
+          node --check web/chat/audience.js
+          node --check web/chat/reply-audio.js
+
+      - name: Synthetic identity and memory contracts
+        shell: bash
+        run: |
+          set -euo pipefail
+          php tests/audience_auth_contract.php
+          php tests/memory_v1_contract.php
+          php tests/chat_v2_regenerate_contract.php
+
+      - name: Ephemeral loopback HTTP authorization QA
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 tests/http_audience_qa.py
+
+      - name: Assert fail-closed role boundaries
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          auth = Path('web/includes/chat_auth.php').read_text(encoding='utf-8')
+          runtime = Path('web/includes/chat_runtime.php').read_text(encoding='utf-8')
+          chat = Path('web/chat/index.php').read_text(encoding='utf-8')
+          for name in ('meso_chat_current_audience', 'meso_chat_account_digest', 'meso_chat_cookie_value'):
+              assert name in auth, name
+          assert 'meso_chat_require_conversation_audience' in runtime
+          assert 'meso_chat_verify_invite' in chat
+          assert 'AI-generated voice' in Path('web/chat/reply-audio.js').read_text(encoding='utf-8')
+          print('MESO_STATIC_AUDIENCE_GUARD=PASS')
+          PY
+
+      - name: Report QA-only boundary
+        if: always()
+        shell: bash
+        run: |
+          echo "No deployment, model inference, voice training, or production write steps were configured."
+          echo "PRODUCTION_RELEASE=HOLD"
