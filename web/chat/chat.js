@@ -17,7 +17,7 @@
   const validId=(value)=>/^[a-f0-9]{64}$/.test(String(value||''));
   const stateJsonHeaders={'Content-Type':'application/json','Accept':'application/json'};
   const authenticatedAudience=String(document.body?.dataset.mesoAudience||'');
-  const baseStatus=()=> 'Private · '+(activeAudience==='majid'?'كابتن ماجد':activeAudience==='mira'?'نور العين':'Choose identity')+' · Persona '+activePersona+' · Historical evidence '+activeEvidenceCount+' · Conversation memory MESO v1 · Voice AI (testing)';
+  const baseStatus=()=> 'Private · '+(activeAudience==='majid'?'كابتن ماجد':activeAudience==='mira'?'نور العين':activeAudience==='jamal'?'جمال':'Choose identity')+' · Persona '+activePersona+' · Historical evidence '+activeEvidenceCount+' · Conversation memory MESO v1 · Voice AI (testing)';
 
   function ensureStopButton(){
     let button=$('stopGeneration');
@@ -108,14 +108,14 @@
   async function loadPersonaState(){try{const response=await fetch('/meso/api/persona-status.php',{credentials:'same-origin',cache:'no-store',headers:{Accept:'application/json'}});const body=await readJson(response);if(response.ok&&body.ok)applyPersonaState(body);}catch(error){if(error?.message!=='chat_auth_required')status.textContent='Private · Persona status unavailable';}}
 
   async function createConversation(title='New conversation'){
-    if(!['majid','mira'].includes(activeAudience)||activeAudience!==authenticatedAudience)throw new Error('identity_mismatch');
+    if(!['majid','mira','jamal'].includes(activeAudience)||activeAudience!==authenticatedAudience)throw new Error('identity_mismatch');
     const response=await fetch('/meso/api/conversations.php',{method:'POST',credentials:'same-origin',cache:'no-store',headers:stateJsonHeaders,body:JSON.stringify({title,audience:activeAudience})});const body=await readJson(response);const id=String(body?.conversation?.id||'');if(!response.ok||!body.ok||!validId(id))throw new Error(body.message||body.error||`HTTP ${response.status}`);activeConversationId=id;storeConversationId(id);emitConversationChanged();return id;
   }
   async function loadMessages(conversationId){
     if(!validId(conversationId))throw new Error('invalid_conversation_id');
     const response=await fetch(`/meso/api/messages.php?conversation_id=${encodeURIComponent(conversationId)}&limit=100`,{credentials:'same-origin',cache:'no-store',headers:{Accept:'application/json'}});const body=await readJson(response);if(!response.ok||!body.ok)throw new Error(body.error||`HTTP ${response.status}`);
     const savedAudience=String(body?.conversation?.audience||'');
-    if(!['majid','mira'].includes(activeAudience)||savedAudience!==activeAudience)throw new Error('identity_mismatch');
+    if(!['majid','mira','jamal'].includes(activeAudience)||savedAudience!==activeAudience)throw new Error('identity_mismatch');
     messages.replaceChildren();const items=Array.isArray(body.items)?body.items:[];if(items.length===0){showEmpty('Private conversation ready','Conversation memory v1 is ON. Historical Persona evidence remains a separate store.');return;}
     let pendingUserMessageId='';
     for(const item of items){const role=String(item?.role||'');if(role!=='user'&&role!=='assistant')continue;const itemId=String(item?.id||'');if(role==='user'){pendingUserMessageId=validId(itemId)?itemId:'';addMessage(role,String(item?.content||''),messageMeta(item));}else{addMessage(role,String(item?.content||''),messageMeta(item),{userMessageId:pendingUserMessageId});pendingUserMessageId='';}}

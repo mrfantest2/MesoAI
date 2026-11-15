@@ -33,7 +33,7 @@ try:
  private=root/"private"
  private.mkdir()
  secret=secrets.token_urlsafe(48)
- tokens={role:secrets.token_urlsafe(48) for role in ("majid","mira")}
+ tokens={role:secrets.token_urlsafe(48) for role in ("majid","mira","jamal")}
  (private/"chat-cookie-secret.txt").write_text(secret)
  (private/"chat-accounts.json").write_text(json.dumps({"accounts":{r:hashlib.sha256(t.encode()).hexdigest() for r,t in tokens.items()}}))
  # The throwaway copy is configured to use *only* disposable test data.
@@ -62,28 +62,30 @@ try:
  check(request(port,"/api/conversations.php")[0]==403,"Anonymous conversation API denied")
  check(request(port,"/chat/",{"action":"authorize","audience":"majid","token":"invalid"*8},form=True)[0]==403,"Invalid role invitation denied")
  cookies={}
- for role in ("majid","mira"):
+ for role in ("majid","mira","jamal"):
   code,headers,_=request(port,"/chat/",{"action":"authorize","audience":role,"token":tokens[role]},form=True)
   cookie=headers.get("Set-Cookie","").split(";",1)[0].split("=",1)[-1]
   check(code==303 and cookie.startswith("v2."+role+"."),"Role-bound login "+role)
   cookies[role]=cookie
   check(request(port,"/chat/",cookie=cookie)[0]==200,"Authenticated chat "+role)
  checks={}
- for role in ("majid","mira"):
+ for role in ("majid","mira","jamal"):
   code,headers,body=request(port,"/api/conversations.php",{"title":"Synthetic "+role,"audience":role},cookie=cookies[role])
   out=json.loads(body)
   check(code==201 and out.get("conversation",{}).get("audience")==role,"Server-owned conversation "+role)
   checks[role]=out["conversation"]["id"]
  code,_,body=request(port,"/api/conversations.php",{"title":"Should reject","audience":"mira"},cookie=cookies["majid"])
  check(code==403,"Majid cannot forge Mira conversation")
- for role,other in (("majid","mira"),("mira","majid")):
+ for role in ("majid","mira","jamal"):
   code,_,body=request(port,"/api/conversations.php?limit=100",cookie=cookies[role])
   visible=json.loads(body)["items"]
   check(code==200 and len(visible)==1 and visible[0]["id"]==checks[role],"Conversation list isolation "+role)
-  check(request(port,"/api/messages.php?conversation_id="+checks[other],cookie=cookies[role])[0]==403,"Cross-user messages denied "+role)
-  check(request(port,"/api/memory.php?conversation_id="+checks[other],cookie=cookies[role])[0]==403,"Cross-user memory denied "+role)
-  check(request(port,"/api/conversations.php",{"conversation_id":checks[other],"archived":True},cookie=cookies[role],method="PATCH")[0]==403,"Cross-user archive denied "+role)
-  check(request(port,"/api/chat-stream.php",{"conversation_id":checks[other],"message":"synthetic probe"},cookie=cookies[role])[0]==403,"Cross-user stream blocked "+role)
+  for other in ("majid","mira","jamal"):
+   if other==role: continue
+   check(request(port,"/api/messages.php?conversation_id="+checks[other],cookie=cookies[role])[0]==403,"Cross-user messages denied "+role+"/"+other)
+   check(request(port,"/api/memory.php?conversation_id="+checks[other],cookie=cookies[role])[0]==403,"Cross-user memory denied "+role+"/"+other)
+   check(request(port,"/api/conversations.php",{"conversation_id":checks[other],"archived":True},cookie=cookies[role],method="PATCH")[0]==403,"Cross-user archive denied "+role+"/"+other)
+   check(request(port,"/api/chat-stream.php",{"conversation_id":checks[other],"message":"synthetic probe"},cookie=cookies[role])[0]==403,"Cross-user stream blocked "+role+"/"+other)
  code,_,body=request(port,"/api/chat-stream.php",{"conversation_id":checks["majid"],"message":"test synthetic only"},cookie=cookies["majid"])
  check(code==503 and b"provider_not_configured" in body,"No unintended model call with provider unset")
  code,_,body=request(port,"/api/messages.php?conversation_id="+checks["majid"],cookie=cookies["majid"])
