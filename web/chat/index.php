@@ -21,7 +21,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     if ($action === 'authorize') {
         $audience=trim((string)($_POST['audience']??''));
         $token=trim((string)($_POST['token']??''));
-        if (meso_chat_invite_rate_ok((string)($_SERVER['REMOTE_ADDR']??'unknown'))
+        if (meso_chat_invite_rate_ok(meso_chat_client_ip())
             && meso_chat_verify_invite($audience,$token)
             && meso_chat_set_authorized_cookie($audience)) {
             header('Location: /meso/chat/',true,303);

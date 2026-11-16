@@ -8,7 +8,7 @@ require_once __DIR__ . DIRECTORY_SEPARATOR . 'memory.php';
 function meso_chat_rate_limit_or_throw(): void {
     $root=meso_private_root().'\\chat-rate';
     if(!is_dir($root)&&!@mkdir($root,0700,true)&&!is_dir($root)) throw new RuntimeException('rate_limit_unavailable');
-    $path=$root.'\\'.hash('sha256',(string)($_SERVER['REMOTE_ADDR']??'unknown')).'.json';
+    $path=$root.'\\'.hash('sha256',meso_chat_client_ip()).'.json';
     $fh=@fopen($path,'c+');
     if(!$fh) throw new RuntimeException('rate_limit_unavailable');
     try {

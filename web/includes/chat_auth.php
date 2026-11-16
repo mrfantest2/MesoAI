@@ -43,6 +43,16 @@ function meso_chat_verify_invite(string $audience, string $token): bool {
     $expected=meso_chat_account_digest($audience);
     return $expected!==null && hash_equals($expected,hash('sha256',$token));
 }
+function meso_chat_client_ip(?array $server = null): string {
+    $server = $server ?? $_SERVER;
+    $remote = (string)($server['REMOTE_ADDR'] ?? 'unknown');
+    // Cloudflare tunnel connects from loopback; trust its client-IP header only for loopback peers.
+    if (in_array($remote, ['127.0.0.1','::1'], true)) {
+        $cf = trim((string)($server['HTTP_CF_CONNECTING_IP'] ?? ''));
+        if ($cf !== '' && filter_var($cf, FILTER_VALIDATE_IP) !== false) return $cf;
+    }
+    return $remote;
+}
 function meso_chat_invite_rate_ok(string $ip): bool {
     $dir = meso_private_root() . DIRECTORY_SEPARATOR . 'chat-auth-rate';
     if (!is_dir($dir) && !@mkdir($dir,0700,true) && !is_dir($dir)) return false;
