@@ -39,7 +39,7 @@ putenv('MESO_MEMORY_ROOT=' . $memoryRoot);
 try {
     $db = meso_memory_db();
     expect_true($db instanceof PDO, 'Memory DB did not open');
-    expect_true(meso_memory_schema_version($db) === 2, 'Memory schema version must be 2');
+    expect_true(meso_memory_schema_version($db) === 3, 'Memory schema version must be 3');
     expect_true(str_ends_with(meso_memory_db_path(), 'meso-memory.sqlite'), 'Unexpected DB filename');
 
     $conversation = meso_memory_create_conversation('First private chat');
@@ -117,14 +117,14 @@ try {
     $legacyDb->exec('PRAGMA user_version=1');
     $legacyDb = null;
     $upgraded = meso_memory_connect($legacy);
-    expect_true(meso_memory_schema_version($upgraded) === 2, 'v1 database migration failed');
+    expect_true(meso_memory_schema_version($upgraded) === 3, 'v1 database migration failed');
     $oldRecord = $upgraded->query("SELECT title,audience FROM conversations WHERE id='legacy'")->fetch();
     expect_true(($oldRecord['title']??'') === 'Existing' && array_key_exists('audience',$oldRecord) && $oldRecord['audience'] === null, 'Migration changed legacy data');
     $upgraded = null;
 
     $future = $base . DIRECTORY_SEPARATOR . 'future.sqlite';
     $futureDb = new PDO('sqlite:' . $future);
-    $futureDb->exec('PRAGMA user_version=3');
+    $futureDb->exec('PRAGMA user_version=4');
     $futureDb = null;
     $failed = false;
     try {

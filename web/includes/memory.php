@@ -1,7 +1,7 @@
 <?php
 declare(strict_types=1);
 
-const MESO_MEMORY_SCHEMA_VERSION = 2;
+const MESO_MEMORY_SCHEMA_VERSION = 3;
 
 function meso_memory_root(): string {
     $override = PHP_SAPI === 'cli' ? trim((string)(getenv('MESO_MEMORY_ROOT') ?: '')) : '';
@@ -59,7 +59,7 @@ function meso_memory_connect(string $path): PDO {
                 updated_at INTEGER NOT NULL,
                 archived_at INTEGER NULL,
                 deleted_at INTEGER NULL,
-                audience TEXT NULL CHECK(audience IN ('majid','mira'))
+                audience TEXT NULL CHECK(audience IN ('majid','mira','jamal'))
             )");
             $db->exec("CREATE TABLE messages (
                 seq INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -100,15 +100,56 @@ function meso_memory_connect(string $path): PDO {
         }
     }
 
-    if ($version === 1) {
-        $db->beginTransaction();
+    // Rebuild legacy v1/v2 conversation constraints as v3. ALTER COLUMN
+    // cannot widen a SQLite CHECK clause, even when PHP accepts a new role.
+    if ($version === 1 || $version === 2) {
+        if ($db->query('PRAGMA quick_check')->fetchColumn() !== 'ok') {
+            throw new RuntimeException('memory_schema_integrity_failed');
+        }
+        $columns = array_column($db->query('PRAGMA table_info(conversations)')->fetchAll(), 'name');
+        foreach (['id','title','created_at','updated_at','archived_at','deleted_at'] as $required) {
+            if (!in_array($required, $columns, true)) {
+                throw new RuntimeException('memory_schema_missing_column');
+            }
+        }
+        $hasAudience = in_array('audience', $columns, true);
+        if ($version === 2 && !$hasAudience) throw new RuntimeException('memory_schema_missing_audience');
+        $before = (int)$db->query('SELECT COUNT(*) FROM conversations')->fetchColumn();
+        // Preserve existing named indexes and triggers on the rebuilt table.
+        $schemaObjects = $db->query("SELECT sql FROM sqlite_master WHERE type IN ('index','trigger') AND tbl_name='conversations' AND sql IS NOT NULL")->fetchAll(PDO::FETCH_COLUMN);
+        $db->exec('PRAGMA foreign_keys=OFF');
         try {
-            $db->exec("ALTER TABLE conversations ADD COLUMN audience TEXT NULL CHECK(audience IN ('majid','mira'))");
-            $db->exec('PRAGMA user_version=2');
+            $db->beginTransaction();
+            $db->exec("CREATE TABLE conversations_v3 (
+                id TEXT PRIMARY KEY,
+                title TEXT NOT NULL,
+                created_at INTEGER NOT NULL,
+                updated_at INTEGER NOT NULL,
+                archived_at INTEGER NULL,
+                deleted_at INTEGER NULL,
+                audience TEXT NULL CHECK(audience IN ('majid','mira','jamal'))
+            )");
+            $audienceColumn = $hasAudience ? 'audience' : 'NULL';
+            $db->exec('INSERT INTO conversations_v3(id,title,created_at,updated_at,archived_at,deleted_at,audience) '
+                . 'SELECT id,title,created_at,updated_at,archived_at,deleted_at,' . $audienceColumn . ' FROM conversations');
+            $after = (int)$db->query('SELECT COUNT(*) FROM conversations_v3')->fetchColumn();
+            if ($after !== $before) throw new RuntimeException('memory_migration_count_mismatch');
+            $db->exec('DROP TABLE conversations');
+            $db->exec('ALTER TABLE conversations_v3 RENAME TO conversations');
+            foreach ($schemaObjects as $sql) $db->exec((string)$sql);
+            if ($db->query('PRAGMA foreign_key_check')->fetchAll() !== []) {
+                throw new RuntimeException('memory_migration_foreign_key_failure');
+            }
+            if ($db->query('PRAGMA quick_check')->fetchColumn() !== 'ok') {
+                throw new RuntimeException('memory_migration_integrity_failure');
+            }
+            $db->exec('PRAGMA user_version=3');
             $db->commit();
         } catch (Throwable $e) {
             if ($db->inTransaction()) $db->rollBack();
             throw $e;
+        } finally {
+            $db->exec('PRAGMA foreign_keys=ON');
         }
     }
     try { $db->exec('PRAGMA journal_mode=WAL'); } catch (Throwable $e) { /* single-host fallback remains valid */ }
@@ -130,7 +171,7 @@ function meso_memory_map_conversation(array $row): array {
     return [
         'id'=>(string)$row['id'],
         'title'=>(string)$row['title'],
-        'audience'=>in_array(($row['audience']??null),['majid','mira'],true)?(string)$row['audience']:null,
+        'audience'=>in_array(($row['audience']??null),['majid','mira','jamal'],true)?(string)$row['audience']:null,
         'created_at'=>(int)$row['created_at'],
         'updated_at'=>(int)$row['updated_at'],
         'archived'=>$row['archived_at'] !== null,
@@ -138,7 +179,7 @@ function meso_memory_map_conversation(array $row): array {
 }
 
 function meso_memory_create_conversation(string $title = 'New conversation', ?string $audience = null): array {
-    if ($audience !== null && !in_array($audience,['majid','mira'],true)) throw new InvalidArgumentException('invalid_audience');
+    if ($audience !== null && !in_array($audience,['majid','mira','jamal'],true)) throw new InvalidArgumentException('invalid_audience');
     $db = meso_memory_db();
     $now = time();
     $row = [

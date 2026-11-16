@@ -4,14 +4,14 @@
   const options=sheet?[...sheet.querySelectorAll('[data-meso-audience]')]:[];
   // The selection is required for each new conversation and each fresh page session.
   window.mesoPickAudience=()=>{
-    if(!sheet||options.length!==2)return Promise.reject(new Error('identity_picker_unavailable'));
+    if(!sheet||options.length!==3)return Promise.reject(new Error('identity_picker_unavailable'));
     return new Promise(resolve=>{
       sheet.hidden=false;sheet.setAttribute('aria-hidden','false');
       const previous=document.activeElement;
       function stopEscape(event){if(event.key==='Escape'){event.preventDefault();event.stopPropagation();}}
       function choose(event){
         const audience=String(event.currentTarget.dataset.mesoAudience||'');
-        if(audience!=='majid'&&audience!=='mira')return;
+        if(audience!=='majid'&&audience!=='mira'&&audience!=='jamal')return;
         options.forEach(button=>button.removeEventListener('click',choose));
         document.removeEventListener('keydown',stopEscape,true);
         sheet.hidden=true;sheet.setAttribute('aria-hidden','true');

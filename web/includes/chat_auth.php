@@ -28,7 +28,7 @@ function meso_b64url(string $raw): string {
     return rtrim(strtr(base64_encode($raw), '+/', '-_'), '=');
 }
 function meso_chat_valid_audience(string $audience): bool {
-    return in_array($audience, ['majid','mira'], true);
+    return in_array($audience, ['majid','mira','jamal'], true);
 }
 function meso_chat_account_digest(string $audience): ?string {
     if (!meso_chat_valid_audience($audience)) return null;
@@ -42,6 +42,16 @@ function meso_chat_verify_invite(string $audience, string $token): bool {
     if (strlen($token)<32 || strlen($token)>256) return false;
     $expected=meso_chat_account_digest($audience);
     return $expected!==null && hash_equals($expected,hash('sha256',$token));
+}
+function meso_chat_client_ip(?array $server = null): string {
+    $server = $server ?? $_SERVER;
+    $remote = (string)($server['REMOTE_ADDR'] ?? 'unknown');
+    // Cloudflare tunnel connects from loopback; trust its client-IP header only for loopback peers.
+    if (in_array($remote, ['127.0.0.1','::1'], true)) {
+        $cf = trim((string)($server['HTTP_CF_CONNECTING_IP'] ?? ''));
+        if ($cf !== '' && filter_var($cf, FILTER_VALIDATE_IP) !== false) return $cf;
+    }
+    return $remote;
 }
 function meso_chat_invite_rate_ok(string $ip): bool {
     $dir = meso_private_root() . DIRECTORY_SEPARATOR . 'chat-auth-rate';
@@ -72,7 +82,7 @@ function meso_chat_cookie_value(string $audience, int $expires): ?string {
 }
 function meso_chat_current_audience(): ?string {
     $raw=(string)($_COOKIE[MESO_CHAT_COOKIE] ?? '');
-    if (!preg_match('/^v2\.(majid|mira)\.([0-9]{10,12})\.([A-Za-z0-9_-]{43})$/D',$raw,$m)) return null;
+    if (!preg_match('/^v2\.(majid|mira|jamal)\.([0-9]{10,12})\.([A-Za-z0-9_-]{43})$/D',$raw,$m)) return null;
     $exp=(int)$m[2];
     if ($exp<time() || $exp>time()+MESO_CHAT_COOKIE_DAYS*86400+3600) return null;
     $expected=meso_chat_cookie_value($m[1],$exp);

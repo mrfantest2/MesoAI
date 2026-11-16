@@ -20,7 +20,7 @@ function meso_tts_error(int $status, string $error, string $message = ''): void 
 function meso_tts_rate_limit(): bool {
     $root = meso_private_root() . '\\xtts-live\\rate';
     if (!is_dir($root) && !@mkdir($root, 0700, true) && !is_dir($root)) return false;
-    $ip = (string)($_SERVER['REMOTE_ADDR'] ?? 'unknown');
+    $ip = meso_chat_client_ip();
     $path = $root . '\\' . hash('sha256', $ip) . '.json';
     $fh = @fopen($path, 'c+');
     if (!$fh) return false;

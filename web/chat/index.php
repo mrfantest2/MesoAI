@@ -21,7 +21,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     if ($action === 'authorize') {
         $audience=trim((string)($_POST['audience']??''));
         $token=trim((string)($_POST['token']??''));
-        if (meso_chat_invite_rate_ok((string)($_SERVER['REMOTE_ADDR']??'unknown'))
+        if (meso_chat_invite_rate_ok(meso_chat_client_ip())
             && meso_chat_verify_invite($audience,$token)
             && meso_chat_set_authorized_cookie($audience)) {
             header('Location: /meso/chat/',true,303);
@@ -78,7 +78,7 @@ button,textarea,a{font:inherit}
 <form method="post" autocomplete="off">
 <input type="hidden" name="action" value="authorize">
 <label for="loginAudience">Account</label>
-<select id="loginAudience" name="audience" required><option value="majid">ماجد — كابتن ماجد</option><option value="mira">ميرا — نور العين</option></select>
+<select id="loginAudience" name="audience" required><option value="majid">ماجد — كابتن ماجد</option><option value="mira">ميرا — نور العين</option><option value="jamal">جمال — Jamal</option></select>
 <label for="loginToken">Private invitation code</label>
 <input id="loginToken" type="password" name="token" autocomplete="off" minlength="32" maxlength="256" required>
 <button type="submit">Sign in privately</button></form>
@@ -139,7 +139,7 @@ button,textarea,a{font:inherit}
     <h2 id="audienceTitle">مين عم يحكي اليوم؟</h2>
     <p>اختار اسمك قبل ما تبدأ كل محادثة جديدة.</p>
     <button data-meso-audience="majid" type="button">أنا ماجد — كابتن ماجد</button>
-    <button data-meso-audience="mira" type="button">أنا ميرا — نور العين</button>
+    <button data-meso-audience="mira" type="button">أنا ميرا — نور العين</button><button data-meso-audience="jamal" type="button">أنا جمال</button>
     <small>هذا مساعد تذكاري بالذكاء الاصطناعي مستوحى من ذكريات ميسون، وليس ميسون نفسها. الردود والصوت المولّد ليست تسجيلات حقيقية.</small>
   </section>
 </div>
